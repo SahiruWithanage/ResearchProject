@@ -1,0 +1,61 @@
+# Phase 1 scaffold config: 2 sources + 1 helper, Poisson arrivals, local-first/helper-offload.
+# Sources are deliberately under-provisioned so the offload branch actually triggers.
+
+# ---- run-level settings ----------------------------------------------------
+
+seed: 42            # master seed for all randomness, same seed = same output
+sim_duration: 500.0 # how long the simulation runs, in simulated seconds
+dt: 1.0             # size of one tick, in simulated seconds
+
+# ---- controllers -----------------------------------------------------------
+# A controller decides where each new task goes. Phase 1 has just one.
+# `parent` is for future hierarchies (regional controllers reporting to a CDC).
+
+controllers:
+  - id: ctrl_main
+    allocator:
+      type: local_first_helper_offload  # the Phase 1 scaffold rule
+      # max_local_queue: 3              # change the offload threshold
+    manages: [node_1, node_2, node_3]
+    parent: null
+
+# ---- nodes -----------------------------------------------------------------
+# `type` is either `source` (generates tasks) or `helper` (only receives offloads).
+# `cpu_capacity` - number of parallel workers.
+# `tier` is a label (edge / fog / cloud) - used heavily once Stage 4 lands.
+# You can add as many nodes as you want, the simulator handles it.
+
+nodes:
+  - id: node_1
+    type: source
+    cpu_capacity: 1.0
+    memory_capacity: 8.0
+    tier: edge
+    source:
+      generator:
+        type: poisson    # try `fixed_interval` for deterministic arrivals
+        rate: 0.8        # mean tasks per simulated second
+        cpu_demand: 2.0  # work units per task (each worker drains 1.0/sec)
+
+  - id: node_2
+    type: source
+    cpu_capacity: 1.0
+    memory_capacity: 8.0
+    tier: edge
+    source:
+      generator:
+        type: poisson
+        rate: 0.8
+        cpu_demand: 2.0
+
+  - id: node_3
+    type: helper
+    cpu_capacity: 4.0
+    memory_capacity: 8.0
+    tier: edge
+
+# ---- logging ---------------------------------------------------------------
+
+logging:
+  output_dir: logs/phase1_run01   # where the CSV files end up
+  log_state_every: 1.0            # snapshot node state every N simulated seconds

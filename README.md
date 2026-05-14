@@ -1,0 +1,103 @@
+# Edge Computing Allocation - Honours Thesis
+
+This is the codebase for my Honours thesis, **"Probabilistic Stability-Aware Resource Allocation in Heterogeneous Edge Computing."** The repo will keep growing as I work through the staged plan.
+
+## What's the research about?
+
+Edge computing is when lots of small devices (sensors, phones, small servers near users) share computing work between themselves instead of sending everything to a big central cloud. When a new piece of work arrives, *someone* has to decide which device should handle it.
+
+The usual answers (send it to the least-busy device, or the closest one) only look at the current state. But things change - devices get busy, slow down, sometimes fail. My thesis asks: can a **Bayesian** approach, one that reasons about how *stable* each device is likely to be over the next few seconds, make better placement choices than the standard rules?
+
+To test that, I'm building a Python simulator where I can plug in different allocation strategies and compare them. The Bayesian allocator gets compared against deterministic baselines (and eventually a "best possible" optimum) under both stable and unstable conditions.
+
+## Where the project is right now
+
+The thesis follows a staged plan. The repo updates as I work through each stage.
+
+- [x] **Stages 1–2** - system model and a working simulation scaffold *(current state).*
+- [ ] **Stage 4** - make nodes meaningfully different (edge / fog / cloud, CPU vs GPU, etc.).
+- [ ] **Stage 5** - the deterministic baseline allocators (latency-first, load-aware, weighted-score).
+- [ ] **Stage 6** - find the best-possible allocation as a reference point (using MILP).
+- [ ] **Stage 7** - real workload datasets / traces instead of synthetic arrivals.
+- [ ] **Stage 8** - instability scenarios (failures, slowdowns, recovery).
+- [ ] **Stage 9** - the Bayesian allocator (the actual research contribution).
+- [ ] **Stage 10** - comparative experiments and analysis.
+
+The allocator that's in the code right now (`local_first_helper_offload`) is a **scaffold** - it exists to prove the simulator's plumbing works, not as one of the methodology's real baselines. The real baselines arrive in Stage 5.
+
+## Running it
+
+Needs Python 3.11 or newer (I'm using 3.14).
+
+```bash
+python -m venv .venv
+source .venv/bin/activate           # macOS / Linux
+# .\.venv\Scripts\Activate.ps1      # Windows PowerShell
+pip install -r requirements.txt
+```
+
+Run the default Phase 1 experiment:
+
+```bash
+python experiments/run_phase1.py configs/phase1.yaml
+```
+
+It writes these files into `logs/phase1_run01/`:
+
+- `allocation_log.csv` - one row per task: where it went, when it finished, did it meet its deadline.
+- `state_log.csv` - node queue lengths and how busy each node was over time.
+- `config_used.yaml` and `seed.txt` - so the exact same run can be reproduced later.
+
+### Optional flags
+
+A few things can be overridden from the command line without editing the config:
+
+```bash
+python experiments/run_phase1.py configs/phase1.yaml --seed 7 --output-dir logs/my_run --quiet
+```
+
+- `--seed N` - use a different random seed for this run.
+- `--output-dir DIR` - write output files somewhere else.
+- `--quiet` - skip the summary print (files are still written).
+
+### Editing the config
+
+`configs/phase1.yaml` is where the experiment settings live. Things you can change without touching any Python:
+
+- `seed` - controls all randomness. Same seed = same output every time.
+- `sim_duration` - how many simulated seconds the run goes for.
+- `dt` - size of one simulator tick, in seconds (e.g. `1.0` or `0.1`).
+- `nodes` - the list of compute nodes. Each has a type (`source` or `helper`), a CPU and memory capacity, and a tier label. You can add as many as you want, the simulator handles it.
+- For source nodes, the `source.generator` block picks the arrival pattern ( Currently `poisson` or `fixed_interval`) and its parameters (e.g. `rate`, `cpu_demand`).
+- `controllers` - which controller is in charge of which nodes, and which allocator it uses. The allocator's own settings (like `max_local_queue` for the scaffold rule) go inside its block.
+- `logging` - where output files go and how often to snapshot node state.
+
+### Tests
+
+```bash
+python -m pytest
+```
+
+## Inside the repo
+
+```
+src/                    # the simulator
+  models/                 # core data types: Task, EdgeNode, NodeState, AllocationOutcome
+  config/                 # YAML loading, validation, plugin registry
+  generation/             # task generators and their interface
+  controller/             # the controller and allocator strategies
+  simulation/             # clock, per-node processing, top-level Environment
+  logging_utils/          # writes the CSV log files
+
+experiments/            # CLI entry points. run_phase1.py is the current one
+configs/                # YAML experiment configs
+tests/                  # the pytest test suite
+logs/                   # simulator outputs (gitignored)
+```
+
+The two interface files (`generation/base.py` and `controller/allocators/base.py`) are the plug-in seams. Every future generator or allocator implements one of these and gets registered by name.
+
+## A few things worth knowing
+
+- Task generators and allocators are **swappable via the YAML config** - adding a new one is a Python class plus a one-line registration. That's how each later stage plugs in without rewriting anything.
+- All randomness goes through one master `seed`. Same config + same seed = same outputs every time.
