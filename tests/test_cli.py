@@ -21,6 +21,7 @@ from src.simulation import Environment
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def raw_config() -> dict[str, Any]:
     return {
@@ -75,6 +76,7 @@ def _write_yaml(tmp_path: Path, raw: dict[str, Any]) -> Path:
 # End-to-end happy path
 # ===========================================================================
 
+
 def test_main_returns_zero_on_successful_run(
     tmp_path: Path, raw_config, capsys
 ) -> None:
@@ -84,9 +86,7 @@ def test_main_returns_zero_on_successful_run(
     assert rc == 0
 
 
-def test_main_writes_all_four_output_files(
-    tmp_path: Path, raw_config, capsys
-) -> None:
+def test_main_writes_all_four_output_files(tmp_path: Path, raw_config, capsys) -> None:
     cfg_path = _write_yaml(tmp_path, raw_config)
     out_dir = tmp_path / "run"
     main([str(cfg_path), "--output-dir", str(out_dir)])
@@ -123,24 +123,23 @@ def test_main_outputs_match_direct_run_byte_for_byte(
 # Stdout summary
 # ===========================================================================
 
-def test_main_prints_summary_in_normal_mode(
-    tmp_path: Path, raw_config, capsys
-) -> None:
+
+def test_main_prints_summary_in_normal_mode(tmp_path: Path, raw_config, capsys) -> None:
     cfg_path = _write_yaml(tmp_path, raw_config)
     out_dir = tmp_path / "run"
     rc = main([str(cfg_path), "--output-dir", str(out_dir)])
     assert rc == 0
     captured = capsys.readouterr()
-    assert "Loading config" in captured.out
+    assert "Config:" in captured.out
     assert "Run complete" in captured.out
     assert "Tasks generated" in captured.out
-    assert "Allocations per node" in captured.out
+    assert "Setup (what this run uses)" in captured.out
+    assert "Allocator:" in captured.out
+    assert "Tasks placed on each node" in captured.out
     assert "Output written to" in captured.out
 
 
-def test_main_quiet_suppresses_stdout(
-    tmp_path: Path, raw_config, capsys
-) -> None:
+def test_main_quiet_suppresses_stdout(tmp_path: Path, raw_config, capsys) -> None:
     cfg_path = _write_yaml(tmp_path, raw_config)
     out_dir = tmp_path / "run"
     rc = main([str(cfg_path), "--output-dir", str(out_dir), "--quiet"])
@@ -153,9 +152,8 @@ def test_main_quiet_suppresses_stdout(
 # CLI overrides
 # ===========================================================================
 
-def test_main_seed_override_changes_outputs(
-    tmp_path: Path, raw_config, capsys
-) -> None:
+
+def test_main_seed_override_changes_outputs(tmp_path: Path, raw_config, capsys) -> None:
     cfg_path = _write_yaml(tmp_path, raw_config)
     out_a = tmp_path / "seed_42"
     out_b = tmp_path / "seed_7"
@@ -195,6 +193,7 @@ def test_main_output_dir_override_recorded_in_config_used(
 # Error paths
 # ===========================================================================
 
+
 def test_main_missing_config_file_returns_2(tmp_path: Path, capsys) -> None:
     rc = main([str(tmp_path / "does_not_exist.yaml")])
     assert rc == 2
@@ -220,9 +219,7 @@ def test_main_top_level_list_returns_2(tmp_path: Path, capsys) -> None:
     assert "must be a mapping" in captured.err
 
 
-def test_main_invalid_schema_returns_2(
-    tmp_path: Path, raw_config, capsys
-) -> None:
+def test_main_invalid_schema_returns_2(tmp_path: Path, raw_config, capsys) -> None:
     del raw_config["seed"]
     cfg_path = _write_yaml(tmp_path, raw_config)
     rc = main([str(cfg_path)])
@@ -234,6 +231,7 @@ def test_main_invalid_schema_returns_2(
 # ===========================================================================
 # Subprocess smoke test
 # ===========================================================================
+
 
 def test_cli_subprocess_smoke(tmp_path: Path, raw_config) -> None:
     # Actually invoke the CLI in a subprocess to verify sys.path bootstrap + argparse + exit code.
@@ -254,9 +252,9 @@ def test_cli_subprocess_smoke(tmp_path: Path, raw_config) -> None:
         cwd=project_root,
         timeout=60,
     )
-    assert completed.returncode == 0, (
-        f"CLI failed: stdout={completed.stdout!r} stderr={completed.stderr!r}"
-    )
+    assert (
+        completed.returncode == 0
+    ), f"CLI failed: stdout={completed.stdout!r} stderr={completed.stderr!r}"
     assert (out_dir / "allocation_log.csv").is_file()
     assert (out_dir / "state_log.csv").is_file()
     assert (out_dir / "config_used.yaml").is_file()

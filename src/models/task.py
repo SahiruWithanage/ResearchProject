@@ -1,7 +1,6 @@
 """Task: one unit of work, immutable once created."""
 
 from __future__ import annotations
-
 from dataclasses import dataclass
 
 

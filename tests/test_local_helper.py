@@ -7,6 +7,11 @@ import pytest
 from src.config.factory import allocators
 from src.controller.allocators import LocalFirstHelperOffloadAllocator
 from src.models import EdgeNode, NodeState, Task
+from tests.alloc_helpers import decision_context
+
+
+def _alloc(a, task, candidates, states, t=0.0):
+    return a.allocate(decision_context(task, list(candidates), states, t))
 
 
 # ---------------------------------------------------------------------------
@@ -76,7 +81,7 @@ def test_negative_max_local_queue_raises() -> None:
 def test_empty_candidates_raises() -> None:
     a = LocalFirstHelperOffloadAllocator()
     with pytest.raises(ValueError, match="at least one candidate"):
-        a.allocate(_task(), candidates=[], states={}, t=0.0)
+        a.allocate(decision_context(_task(), [], {}))
 
 
 # ===========================================================================
@@ -89,8 +94,7 @@ def test_keeps_task_local_when_source_has_capacity() -> None:
     states = {"node_1": _state("node_1", queue_length=0),
               "node_h": _state("node_h", queue_length=0)}
 
-    chosen = a.allocate(_task(source_node_id="node_1"),
-                        candidates, states, t=0.0)
+    chosen = _alloc(a, _task(source_node_id="node_1"), candidates, states)
     assert chosen == "node_1"
 
 
@@ -100,8 +104,7 @@ def test_keeps_task_local_just_below_threshold() -> None:
     states = {"node_1": _state("node_1", queue_length=2),
               "node_h": _state("node_h", queue_length=0)}
 
-    assert a.allocate(_task(source_node_id="node_1"),
-                       candidates, states, t=0.0) == "node_1"
+    assert _alloc(a, _task(source_node_id="node_1"), candidates, states) == "node_1"
 
 
 # ===========================================================================
@@ -114,8 +117,7 @@ def test_offloads_to_helper_when_source_is_at_threshold() -> None:
     states = {"node_1": _state("node_1", queue_length=3),
               "node_h": _state("node_h", queue_length=0)}
 
-    assert a.allocate(_task(source_node_id="node_1"),
-                       candidates, states, t=0.0) == "node_h"
+    assert _alloc(a, _task(source_node_id="node_1"), candidates, states) == "node_h"
 
 
 def test_offloads_to_helper_when_source_is_over_threshold() -> None:
@@ -124,8 +126,7 @@ def test_offloads_to_helper_when_source_is_over_threshold() -> None:
     states = {"node_1": _state("node_1", queue_length=10),
               "node_h": _state("node_h", queue_length=2)}
 
-    assert a.allocate(_task(source_node_id="node_1"),
-                       candidates, states, t=0.0) == "node_h"
+    assert _alloc(a, _task(source_node_id="node_1"), candidates, states) == "node_h"
 
 
 def test_prefers_helper_over_other_source_when_offloading() -> None:
@@ -141,8 +142,7 @@ def test_prefers_helper_over_other_source_when_offloading() -> None:
         "node_2": _state("node_2", queue_length=0),
         "node_h": _state("node_h", queue_length=1),
     }
-    assert a.allocate(_task(source_node_id="node_1"),
-                       candidates, states, t=0.0) == "node_h"
+    assert _alloc(a, _task(source_node_id="node_1"), candidates, states) == "node_h"
 
 
 def test_picks_shortest_queue_among_multiple_helpers() -> None:
@@ -157,8 +157,7 @@ def test_picks_shortest_queue_among_multiple_helpers() -> None:
         "node_h1": _state("node_h1", queue_length=5),
         "node_h2": _state("node_h2", queue_length=2),
     }
-    assert a.allocate(_task(source_node_id="node_1"),
-                       candidates, states, t=0.0) == "node_h2"
+    assert _alloc(a, _task(source_node_id="node_1"), candidates, states) == "node_h2"
 
 
 def test_helper_tie_broken_deterministically_by_id() -> None:
@@ -173,8 +172,7 @@ def test_helper_tie_broken_deterministically_by_id() -> None:
         "node_hb": _state("node_hb", queue_length=0),
         "node_ha": _state("node_ha", queue_length=0),
     }
-    chosen = a.allocate(_task(source_node_id="node_1"),
-                         candidates, states, t=0.0)
+    chosen = _alloc(a, _task(source_node_id="node_1"), candidates, states)
     # Lexicographically smaller id wins the tie.
     assert chosen == "node_ha"
 
@@ -192,8 +190,7 @@ def test_falls_back_to_shortest_queue_when_no_helper() -> None:
         "node_2": _state("node_2", queue_length=4),
         "node_3": _state("node_3", queue_length=1),
     }
-    assert a.allocate(_task(source_node_id="node_1"),
-                       candidates, states, t=0.0) == "node_3"
+    assert _alloc(a, _task(source_node_id="node_1"), candidates, states) == "node_3"
 
 
 def test_falls_back_to_source_if_only_candidate_when_overloaded() -> None:
@@ -201,8 +198,7 @@ def test_falls_back_to_source_if_only_candidate_when_overloaded() -> None:
     a = LocalFirstHelperOffloadAllocator(max_local_queue=3)
     candidates = [_node("node_1")]
     states = {"node_1": _state("node_1", queue_length=99)}
-    assert a.allocate(_task(source_node_id="node_1"),
-                       candidates, states, t=0.0) == "node_1"
+    assert _alloc(a, _task(source_node_id="node_1"), candidates, states) == "node_1"
 
 
 # ===========================================================================
@@ -216,8 +212,7 @@ def test_task_without_source_node_id_skips_local_branch() -> None:
         "node_1": _state("node_1", queue_length=0),
         "node_h": _state("node_h", queue_length=5),
     }
-    chosen = a.allocate(_task(source_node_id=None),
-                         candidates, states, t=0.0)
+    chosen = _alloc(a, _task(source_node_id=None), candidates, states)
     # Even though node_1 has the shorter queue, the helper is still preferred
     # since the rule's offload branch is taken (no source to keep local on).
     assert chosen == "node_h"
@@ -230,6 +225,5 @@ def test_task_whose_source_is_not_in_candidates_offloads() -> None:
         "node_2": _state("node_2", queue_length=0),
         "node_h": _state("node_h", queue_length=2),
     }
-    chosen = a.allocate(_task(source_node_id="node_1"),
-                         candidates, states, t=0.0)
+    chosen = _alloc(a, _task(source_node_id="node_1"), candidates, states)
     assert chosen == "node_h"

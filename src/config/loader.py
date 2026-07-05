@@ -36,6 +36,7 @@ from .schema import (
     ControllerConfig,
     GeneratorConfig,
     LoggingConfig,
+    NetworkConfig,
     NodeConfig,
     SimulationConfig,
     SourceConfig,
@@ -91,6 +92,7 @@ def parse_config(raw: Mapping[str, Any]) -> SimulationConfig:
     controllers = [_parse_controller(c, idx) for idx, c in enumerate(raw_controllers)]
     _check_unique_ids(controllers, "controller")
 
+    network_cfg = _parse_network(raw.get("network"))
     logging_cfg = _parse_logging(_require_mapping(raw, "logging"))
 
     _check_cross_references(controllers, nodes)
@@ -101,6 +103,7 @@ def parse_config(raw: Mapping[str, Any]) -> SimulationConfig:
         dt=dt,
         controllers=controllers,
         nodes=nodes,
+        network=network_cfg,
         logging=logging_cfg,
     )
 
@@ -211,6 +214,59 @@ def _parse_controller(raw: Any, idx: int) -> ControllerConfig:
         allocator=allocator,
         manages=list(manages),
         parent=parent_raw,
+    )
+
+
+def _parse_network(raw: Any) -> NetworkConfig:
+    """Parse optional network block; default to instant (zero delay)."""
+    if raw is None:
+        return NetworkConfig(type="instant", default_profile="instant")
+    if not isinstance(raw, Mapping):
+        raise ConfigError(
+            f"network must be a mapping, got {type(raw).__name__}"
+        )
+    net_type = _require_str(raw, "type", "network")
+    default_profile = str(raw.get("default_profile", "wifi"))
+    profiles_raw = raw.get("profiles", {})
+    if profiles_raw is None:
+        profiles_raw = {}
+    if not isinstance(profiles_raw, Mapping):
+        raise ConfigError("network.profiles must be a mapping")
+    profiles: dict[str, dict[str, Any]] = {}
+    for name, spec in profiles_raw.items():
+        if not isinstance(spec, Mapping):
+            raise ConfigError(
+                f"network.profiles[{name!r}] must be a mapping"
+            )
+        profiles[str(name)] = dict(spec)
+
+    links_raw = raw.get("links", [])
+    if links_raw is None:
+        links_raw = []
+    if not isinstance(links_raw, list):
+        raise ConfigError("network.links must be a list")
+    links: list[dict[str, Any]] = []
+    for i, link in enumerate(links_raw):
+        if not isinstance(link, Mapping):
+            raise ConfigError(
+                f"network.links[{i}] must be a mapping, got {type(link).__name__}"
+            )
+        if "from" not in link or "to" not in link:
+            raise ConfigError(f"network.links[{i}] requires 'from' and 'to'")
+        links.append(dict(link))
+
+    params_raw = raw.get("params", {})
+    if params_raw is None:
+        params_raw = {}
+    if not isinstance(params_raw, Mapping):
+        raise ConfigError("network.params must be a mapping")
+
+    return NetworkConfig(
+        type=net_type,
+        default_profile=default_profile,
+        profiles=profiles,
+        links=links,
+        params=dict(params_raw),
     )
 
 

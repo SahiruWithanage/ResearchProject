@@ -1,22 +1,23 @@
-"""Controller: snapshots node states, asks the allocator, enqueues, records the outcome."""
+"""Controller: snapshots node states, asks the allocator, records the outcome."""
 
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
+
 from src.controller.allocators.base import Allocator
+from src.controller.context import DecisionContext
 from src.models import AllocationOutcome, EdgeNode, Task
+from src.simulation.estimates import CompletionEstimator
 
 if TYPE_CHECKING:
-    # Type-only import to avoid a circular import with src.simulation.
     from src.simulation.processing import NodeRuntime
 
 
 class Controller:
-    """Owns a set of nodes. For each task, snapshots node states, asks the
-    allocator where to place the task, enqueues it on the chosen node,
-    and records the outcome.
+    """Owns a set of nodes. Allocates tasks via the configured strategy.
 
-    Supports a ``parent_id`` so future hierarchical topologies (regional
-    controllers reporting to a CDC) can be built without changing the API.
+    Does **not** enqueue tasks; :class:`~src.simulation.environment.Environment`
+    dispatches after allocation (local enqueue or remote transit).
     """
 
     def __init__(
@@ -41,10 +42,22 @@ class Controller:
         self._candidates: list[EdgeNode] = [rt.node for rt in managed_nodes]
         self.outcomes: dict[str, AllocationOutcome] = {}
 
-    def submit(self, task: Task, t: float) -> AllocationOutcome:
-        """Allocate a task to a managed node and record the decision."""
+    def submit(
+        self,
+        task: Task,
+        t: float,
+        estimator: CompletionEstimator,
+    ) -> AllocationOutcome:
+        """Run the allocator and record the decision (no enqueue)."""
         states = {rt.node_id: rt.snapshot(t) for rt in self.managed_nodes}
-        chosen_id = self.allocator.allocate(task, self._candidates, states, t)
+        context = DecisionContext(
+            task=task,
+            candidates=self._candidates,
+            states=states,
+            t=t,
+            estimator=estimator,
+        )
+        chosen_id = self.allocator.allocate(context)
 
         if chosen_id not in self._runtime_by_node:
             raise RuntimeError(
@@ -53,27 +66,31 @@ class Controller:
                 f"{sorted(self._runtime_by_node)}"
             )
 
-        self._runtime_by_node[chosen_id].enqueue(task)
-
-        # Optimistic estimate: ignores queueing. The gap to actual completion is itself useful signal.
-        work = task.data_size * task.cpu_demand
+        source_id = task.source_node_id or chosen_id
+        eta = estimator.estimated_completion(
+            source_id,
+            self._runtime_by_node[chosen_id].node,
+            task,
+            states,
+            t,
+        )
         outcome = AllocationOutcome(
             task_id=task.task_id,
             decision_time=t,
             allocator_type=self.allocator_type,
             selected_node=chosen_id,
-            estimated_completion_time=t + work,
+            estimated_completion_time=eta,
+            transfer_start=t,
         )
         self.outcomes[task.task_id] = outcome
         return outcome
 
     def record_completion(self, task: Task, completion_time: float) -> None:
-        """Fill in actual_completion_time and deadline_met on the existing outcome."""
         outcome = self.outcomes.get(task.task_id)
         if outcome is None:
             raise KeyError(
                 f"task {task.task_id!r} is not tracked by controller "
-                f"{self.id!r}; outcomes: {len(self.outcomes)} entries"
+                f"{self.id!r}"
             )
         outcome.actual_completion_time = completion_time
         outcome.deadline_met = completion_time <= task.deadline

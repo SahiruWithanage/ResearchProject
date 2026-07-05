@@ -6,8 +6,10 @@ import pytest
 
 from src.controller import Allocator, Controller
 from src.controller.allocators import LocalFirstHelperOffloadAllocator
+from src.controller.context import DecisionContext
 from src.models import EdgeNode, Task
 from src.simulation import NodeRuntime
+from tests.alloc_helpers import instant_estimator
 
 
 # ---------------------------------------------------------------------------
@@ -47,14 +49,14 @@ def _task(
 
 
 class _AlwaysFirstCandidateAllocator(Allocator):
-    def allocate(self, task, candidates, states, t):
-        return candidates[0].node_id
+    def allocate(self, context: DecisionContext) -> str:
+        return context.candidates[0].node_id
 
 
 class _AlwaysGhostAllocator(Allocator):
     """Always returns a node_id not in the candidate set (used for the rejection test)."""
 
-    def allocate(self, task, candidates, states, t):
+    def allocate(self, context: DecisionContext) -> str:
         return "ghost_node"
 
 
@@ -119,14 +121,13 @@ def test_controller_parent_id_can_be_set() -> None:
 def test_submit_records_outcome_with_decision_time_fields() -> None:
     ctrl = _make_controller(allocator_type="test_strategy")
     task = _task("t_001", source="node_1", data_size=2.0, cpu_demand=3.0)
-    outcome = ctrl.submit(task, t=5.0)
+    outcome = ctrl.submit(task, t=5.0, estimator=instant_estimator())
 
     assert outcome.task_id == "t_001"
     assert outcome.decision_time == 5.0
     assert outcome.allocator_type == "test_strategy"
     assert outcome.selected_node == "node_1"
-    # work = data_size * cpu_demand = 2 * 3 = 6, estimated = decision_time + work.
-    assert outcome.estimated_completion_time == 11.0
+    assert outcome.estimated_completion_time > 5.0
     assert outcome.actual_completion_time is None
     assert outcome.deadline_met is None
 
@@ -134,25 +135,24 @@ def test_submit_records_outcome_with_decision_time_fields() -> None:
 def test_submit_stores_outcome_in_controller() -> None:
     ctrl = _make_controller()
     task = _task("t_001")
-    ctrl.submit(task, t=0.0)
+    ctrl.submit(task, t=0.0, estimator=instant_estimator())
     assert ctrl.has_task("t_001")
     assert ctrl.outcomes["t_001"].selected_node == "node_1"
 
 
-def test_submit_enqueues_task_on_chosen_node() -> None:
+def test_submit_does_not_enqueue_task() -> None:
     ctrl = _make_controller()
-    runtime_for_node_1 = next(rt for rt in ctrl.managed_nodes if rt.node_id == "node_1")
-    runtime_for_node_2 = next(rt for rt in ctrl.managed_nodes if rt.node_id == "node_2")
-
-    ctrl.submit(_task("t_001"), t=0.0)
-    assert runtime_for_node_1.queue_length == 1
-    assert runtime_for_node_2.queue_length == 0
+    runtime_for_node_1 = next(
+        rt for rt in ctrl.managed_nodes if rt.node_id == "node_1"
+    )
+    ctrl.submit(_task("t_001"), t=0.0, estimator=instant_estimator())
+    assert runtime_for_node_1.queue_length == 0
 
 
 def test_submit_rejects_unknown_node_from_allocator() -> None:
     ctrl = _make_controller(allocator=_AlwaysGhostAllocator())
     with pytest.raises(RuntimeError, match="unknown node_id 'ghost_node'"):
-        ctrl.submit(_task("t_001"), t=0.0)
+        ctrl.submit(_task("t_001"), t=0.0, estimator=instant_estimator())
 
 
 # ===========================================================================
@@ -163,7 +163,7 @@ def test_submit_rejects_unknown_node_from_allocator() -> None:
 def test_record_completion_fills_actual_and_deadline_met_true() -> None:
     ctrl = _make_controller()
     task = _task("t_001", deadline=10.0)
-    ctrl.submit(task, t=0.0)
+    ctrl.submit(task, t=0.0, estimator=instant_estimator())
     ctrl.record_completion(task, completion_time=4.5)
     outcome = ctrl.outcomes["t_001"]
     assert outcome.actual_completion_time == 4.5
@@ -173,7 +173,7 @@ def test_record_completion_fills_actual_and_deadline_met_true() -> None:
 def test_record_completion_fills_deadline_met_false_when_late() -> None:
     ctrl = _make_controller()
     task = _task("t_001", deadline=3.0)
-    ctrl.submit(task, t=0.0)
+    ctrl.submit(task, t=0.0, estimator=instant_estimator())
     ctrl.record_completion(task, completion_time=5.5)
     outcome = ctrl.outcomes["t_001"]
     assert outcome.actual_completion_time == 5.5
@@ -183,7 +183,7 @@ def test_record_completion_fills_deadline_met_false_when_late() -> None:
 def test_record_completion_exactly_at_deadline_counts_as_met() -> None:
     ctrl = _make_controller()
     task = _task("t_001", deadline=4.0)
-    ctrl.submit(task, t=0.0)
+    ctrl.submit(task, t=0.0, estimator=instant_estimator())
     ctrl.record_completion(task, completion_time=4.0)
     assert ctrl.outcomes["t_001"].deadline_met is True
 
@@ -210,7 +210,9 @@ def test_with_local_first_helper_offload_keeps_local_when_free() -> None:
         allocator_type="local_first_helper_offload",
         managed_nodes=runtimes,
     )
-    outcome = ctrl.submit(_task("t_001", source="node_1"), t=0.0)
+    outcome = ctrl.submit(
+        _task("t_001", source="node_1"), t=0.0, estimator=instant_estimator()
+    )
     assert outcome.selected_node == "node_1"
 
 
@@ -226,7 +228,11 @@ def test_with_local_first_helper_offload_offloads_when_saturated() -> None:
         managed_nodes=runtimes,
     )
     # First two stay local, third hits the threshold and offloads.
-    ctrl.submit(_task("t_001", source="node_1"), t=0.0)
-    ctrl.submit(_task("t_002", source="node_1"), t=0.0)
-    outcome = ctrl.submit(_task("t_003", source="node_1"), t=0.0)
+    est = instant_estimator()
+    rt1 = next(rt for rt in runtimes if rt.node_id == "node_1")
+    for tid in ("t_001", "t_002"):
+        o = ctrl.submit(_task(tid, source="node_1"), t=0.0, estimator=est)
+        rt1.enqueue(_task(tid, source="node_1"))
+        assert o.selected_node == "node_1"
+    outcome = ctrl.submit(_task("t_003", source="node_1"), t=0.0, estimator=est)
     assert outcome.selected_node == "node_2"

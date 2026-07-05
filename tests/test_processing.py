@@ -114,7 +114,7 @@ def test_task_completes_when_work_exhausted() -> None:
 def test_completion_time_is_sub_tick_accurate() -> None:
     # 0.3 work units should finish at t_start + 0.3, not at t_end.
     rt = NodeRuntime(_node(cpu_capacity=1.0))
-    rt.enqueue(_task("t_001", data_size=0.3, cpu_demand=1.0))
+    rt.enqueue(_task("t_001", data_size=1.0, cpu_demand=0.3))
     completed = rt.advance(dt=1.0, t_start=5.0)
     assert len(completed) == 1
     _, completion_time = completed[0]
@@ -124,7 +124,7 @@ def test_completion_time_is_sub_tick_accurate() -> None:
 def test_completed_tasks_vacate_workers_for_queue() -> None:
     rt = NodeRuntime(_node(cpu_capacity=1.0))
     rt.enqueue(_task("t_001", data_size=1.0, cpu_demand=1.0))
-    rt.enqueue(_task("t_002", data_size=2.0, cpu_demand=1.0))
+    rt.enqueue(_task("t_002", data_size=1.0, cpu_demand=2.0))
     # Active: t_001 (1.0 work). Queue: t_002 (2.0 work).
     completed = rt.advance(dt=1.0, t_start=0.0)
     assert [t.task_id for t, _ in completed] == ["t_001"]
@@ -134,9 +134,9 @@ def test_completed_tasks_vacate_workers_for_queue() -> None:
 
 def test_multiple_completions_in_one_tick_sorted_by_completion_time() -> None:
     rt = NodeRuntime(_node(cpu_capacity=3.0))
-    rt.enqueue(_task("t_001", data_size=0.5, cpu_demand=1.0))
-    rt.enqueue(_task("t_002", data_size=0.2, cpu_demand=1.0))
-    rt.enqueue(_task("t_003", data_size=0.8, cpu_demand=1.0))
+    rt.enqueue(_task("t_001", data_size=1.0, cpu_demand=0.5))
+    rt.enqueue(_task("t_002", data_size=1.0, cpu_demand=0.2))
+    rt.enqueue(_task("t_003", data_size=1.0, cpu_demand=0.8))
     completed = rt.advance(dt=1.0, t_start=0.0)
     # All three tasks complete in this tick at different times.
     times = [t for _, t in completed]
@@ -174,12 +174,15 @@ def test_task_with_high_cpu_demand_takes_multiple_ticks() -> None:
 
 
 def test_data_size_extends_work() -> None:
-    # work_units = data_size * cpu_demand: doubling data_size doubles duration.
     rt = NodeRuntime(_node(cpu_capacity=1.0))
-    rt.enqueue(_task("t_001", data_size=2.0, cpu_demand=1.0))  # 2 work units
-    assert rt.advance(dt=1.0, t_start=0.0) == []
-    completed = rt.advance(dt=1.0, t_start=1.0)
+    rt.enqueue(_task("t_001", data_size=100.0, cpu_demand=1.0))
+    completed = rt.advance(dt=1.0, t_start=0.0)
     assert len(completed) == 1
+
+    rt2 = NodeRuntime(_node(cpu_capacity=1.0))
+    rt2.enqueue(_task("t_002", data_size=1.0, cpu_demand=2.0))
+    assert rt2.advance(dt=1.0, t_start=0.0) == []
+    assert len(rt2.advance(dt=1.0, t_start=1.0)) == 1
 
 
 # ---------------------------------------------------------------------------

@@ -1,10 +1,8 @@
 """NodeRuntime: per-node queue, active set, and work-advancement logic."""
 
 from __future__ import annotations
-
 import math
 from dataclasses import dataclass
-
 from src.models import EdgeNode, NodeState, Task
 
 
@@ -22,7 +20,7 @@ class NodeRuntime:
 
     - ``K = max(1, floor(cpu_capacity))`` parallel workers.
     - Each worker drains 1.0 work units per simulated second.
-    - Each task carries ``data_size * cpu_demand`` work units.
+    - Each task carries ``cpu_demand`` work units (``data_size`` is for transmission).
     - Queue discipline is FIFO, a freed worker takes the next queued task.
     """
 
@@ -95,5 +93,5 @@ class NodeRuntime:
     def _fill_active_slots(self) -> None:
         while len(self._active) < self.workers and self._queue:
             task = self._queue.pop(0)
-            work = task.data_size * task.cpu_demand
+            work = task.cpu_demand
             self._active.append(_ActiveTask(task=task, remaining_work=work))

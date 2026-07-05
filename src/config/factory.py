@@ -50,3 +50,4 @@ class Registry:
 
 generators = Registry("generator")
 allocators = Registry("allocator")
+network_models = Registry("network model")

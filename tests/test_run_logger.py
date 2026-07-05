@@ -122,7 +122,8 @@ def test_allocation_log_has_explicit_header(tmp_path: Path, raw_config) -> None:
     header = _read_lines(logger.allocation_log_path)[0]
     expected = (
         "task_id,decision_time,allocator_type,selected_node,"
-        "estimated_completion_time,actual_completion_time,deadline_met"
+        "estimated_completion_time,transfer_start,transfer_end,compute_start,"
+        "actual_completion_time,deadline_met"
     )
     assert header == expected
 

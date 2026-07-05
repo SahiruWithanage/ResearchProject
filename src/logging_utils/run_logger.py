@@ -16,6 +16,9 @@ _ALLOC_FIELDS: tuple[str, ...] = (
     "allocator_type",
     "selected_node",
     "estimated_completion_time",
+    "transfer_start",
+    "transfer_end",
+    "compute_start",
     "actual_completion_time",
     "deadline_met",
 )
@@ -78,6 +81,9 @@ class RunLogger:
                         o.allocator_type,
                         o.selected_node,
                         _fmt_float(o.estimated_completion_time),
+                        _fmt_float(o.transfer_start),
+                        _fmt_float(o.transfer_end),
+                        _fmt_float(o.compute_start),
                         _fmt_float(o.actual_completion_time),
                         _fmt_bool(o.deadline_met),
                     ]

@@ -48,6 +48,17 @@ class ControllerConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class NetworkConfig:
+    """Network / transmission model from YAML."""
+
+    type: str
+    default_profile: str = "instant"
+    profiles: dict[str, dict[str, Any]] = field(default_factory=dict)
+    links: list[dict[str, Any]] = field(default_factory=list)
+    params: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class LoggingConfig:
     """Where to write run outputs and how often to snapshot node state."""
     output_dir: str
@@ -62,4 +73,5 @@ class SimulationConfig:
     dt: float
     controllers: list[ControllerConfig]
     nodes: list[NodeConfig]
+    network: NetworkConfig
     logging: LoggingConfig

@@ -114,30 +114,84 @@ def main(argv: list[str] | None = None) -> int:
     logger.write_run(result, config, raw_config)
 
     if not args.quiet:
-        _print_summary(result, elapsed_wall, logger)
+        _print_summary(result, elapsed_wall, logger, config)
 
     return 0
 
 
 def _print_header(config_path: Path, config: SimulationConfig) -> None:
-    print(f"Loading config: {config_path}")
+    print(f"Config: {config_path.name}")
     print(
-        f"  seed={config.seed}  "
-        f"sim_duration={config.sim_duration}s  "
-        f"dt={config.dt}s"
+        f"  seed={config.seed}  duration={config.sim_duration}s  "
+        f"dt={config.dt}s  output={config.logging.output_dir}"
     )
-    print(
-        f"  {len(config.nodes)} node(s), "
-        f"{len(config.controllers)} controller(s)"
-    )
-    print(f"  output_dir={config.logging.output_dir}")
     print()
+    _print_experiment_setup(config)
+    print()
+
+
+def _print_experiment_setup(config: SimulationConfig) -> None:
+    """Compact setup block for screenshots / lab notes."""
+    print("Setup (what this run uses)")
+    print("-" * 50)
+
+    for ctrl in config.controllers:
+        alloc = ctrl.allocator
+        extra = ""
+        if alloc.params:
+            parts = [f"{k}={v}" for k, v in sorted(alloc.params.items())]
+            extra = f"  ({', '.join(parts)})"
+        print(f"  Allocator:     {alloc.type}{extra}")
+        print(f"    controller:  {ctrl.id}")
+        print(f"    manages:     {', '.join(ctrl.manages)}")
+
+    print("  Task generators:")
+    for node in config.nodes:
+        if node.source is None:
+            continue
+        gen = node.source.generator
+        params = ", ".join(
+            f"{k}={v}" for k, v in sorted(gen.params.items())
+        )
+        line = f"    {node.id}: {gen.type}"
+        if params:
+            line += f"  ({params})"
+        print(line)
+
+    for node in config.nodes:
+        if node.source is None:
+            print(
+                f"    {node.id}: (helper, no generator)  "
+                f"cpu={node.cpu_capacity}"
+            )
+
+    net = config.network
+    print(f"  Network:       {net.type}")
+    if net.type == "fluid_link":
+        print(
+            f"    default link profile: {net.default_profile} "
+            f"(built-in: lan, wifi, 5g)"
+        )
+        if net.links:
+            print("    link overrides:")
+            for link in net.links:
+                prof = link.get("profile", net.default_profile)
+                print(
+                    f"      {link['from']} -> {link['to']}: {prof}"
+                )
+        else:
+            print("    (no per-link overrides; all links use default profile)")
+    else:
+        print("    (instant = zero transmission delay)")
+
+    print("-" * 50)
 
 
 def _print_summary(
     result: EnvironmentResult,
     elapsed_wall: float,
     logger: RunLogger,
+    config: SimulationConfig,
 ) -> None:
     outcomes = result.outcomes
     snapshots = result.snapshots
@@ -160,9 +214,12 @@ def _print_summary(
 
     if outcomes:
         per_node = Counter(o.selected_node for o in outcomes)
-        print("  Allocations per node:")
-        for node_id in sorted(per_node):
-            print(f"    {node_id}: {per_node[node_id]}")
+        print("  Tasks placed on each node (by allocator):")
+        print("    (how many tasks were sent to run on that node)")
+        for node in config.nodes:
+            role = node.type
+            count = per_node.get(node.id, 0)
+            print(f"    {node.id} ({role}): {count}")
         print()
 
     if snapshots:

@@ -76,6 +76,7 @@ def test_valid_config_parses_into_simulation_config(valid_raw):
     assert cfg.seed == 42
     assert cfg.sim_duration == 500.0
     assert cfg.dt == 1.0
+    assert cfg.network.type == "instant"
     assert len(cfg.nodes) == 3
     assert len(cfg.controllers) == 1
     assert cfg.controllers[0].id == "ctrl_main"

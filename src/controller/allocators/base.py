@@ -1,25 +1,20 @@
 """Allocator: contract for any task-to-node placement strategy."""
 
 from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
-from src.models import EdgeNode, NodeState, Task
+
+from src.controller.context import DecisionContext
 
 
 class Allocator(ABC):
-    """Pluggable allocation strategy. Implement :meth:`allocate` to choose a node for a task.
+    """Pluggable allocation strategy.
 
-    This is the seam through which Stage 5 baselines (latency-first,
-    load-aware, weighted-score), the Stage 6 MILP optimum, and the
-    Stage 9 Bayesian allocator all plug in.
+    Implement :meth:`allocate` to choose a node. Use
+    :class:`~src.controller.context.DecisionContext` for node states,
+    simulated time, and :class:`~src.simulation.estimates.CompletionEstimator`.
     """
 
     @abstractmethod
-    def allocate(
-        self,
-        task: Task,
-        candidates: Sequence[EdgeNode],
-        states: Mapping[str, NodeState],
-        t: float,
-    ) -> str:
-        """Return the node_id of the candidate chosen for `task`."""
+    def allocate(self, context: DecisionContext) -> str:
+        """Return the ``node_id`` of the chosen candidate."""

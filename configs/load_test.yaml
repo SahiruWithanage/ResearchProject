@@ -1,0 +1,65 @@
+# Delay / transmission test config.
+#
+# fluid_link  = how delay is calculated (bandwidth + base latency).
+# wifi / lan / 5g = profile names (different speeds); pick per link below.
+
+seed: 42
+sim_duration: 30.0
+dt: 1.0
+
+network:
+  type: fluid_link
+  default_profile: wifi
+  # Link overrides: only needed when THIS hop should differ from default.
+  # Example: force Wi-Fi to the helper (same as default here — shown for clarity):
+  links:
+    - from: node_1
+      to: node_3
+      profile: wifi
+    - from: node_2
+      to: node_3
+      profile: wifi
+  # To use LAN: profile: lan.
+  # To use 5G: profile: 5g
+
+controllers:
+  - id: ctrl_main
+    allocator:
+      type: load_aware
+    manages: [node_1, node_2, node_3]
+    parent: null
+
+nodes:
+  - id: node_1
+    type: source
+    cpu_capacity: 1.0
+    memory_capacity: 8.0
+    tier: edge
+    source:
+      generator:
+        type: poisson
+        rate: 0.8
+        cpu_demand: 2.0
+        data_size: 500000
+
+  - id: node_2
+    type: source
+    cpu_capacity: 1.0
+    memory_capacity: 8.0
+    tier: edge
+    source:
+      generator:
+        type: poisson
+        rate: 0.8
+        cpu_demand: 2.0
+        data_size: 500000
+
+  - id: node_3
+    type: helper
+    cpu_capacity: 4.0
+    memory_capacity: 8.0
+    tier: edge
+
+logging:
+  output_dir: logs/load_test
+  log_state_every: 1.0

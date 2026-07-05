@@ -105,34 +105,52 @@ def test_allocator_subclass_without_allocate_cannot_be_instantiated() -> None:
 
 
 def test_allocator_subclass_with_allocate_can_be_instantiated() -> None:
+    from tests.alloc_helpers import decision_context
+
     class AlwaysFirstCandidate(Allocator):
-        def allocate(self, task, candidates, states, t):
-            return candidates[0].node_id
+        def allocate(self, context):
+            return context.candidates[0].node_id
 
     allocator = AlwaysFirstCandidate()
     task = _make_task()
     candidates = [_make_node("n_1"), _make_node("n_2", node_type="helper")]
     states = {n.node_id: _make_state(n.node_id) for n in candidates}
+    ctx = decision_context(task, candidates, states)
 
-    chosen = allocator.allocate(task, candidates, states, t=0.0)
-    assert chosen == "n_1"
+    assert allocator.allocate(ctx) == "n_1"
 
 
 def test_allocator_can_make_a_state_dependent_choice() -> None:
+    from tests.alloc_helpers import decision_context
+
     class ShortestQueueScratch(Allocator):
-        def allocate(self, task, candidates, states, t):
-            return min(candidates, key=lambda n: states[n.node_id].queue_length).node_id
+        def allocate(self, context):
+            return min(
+                context.candidates,
+                key=lambda n: context.states[n.node_id].queue_length,
+            ).node_id
 
     allocator = ShortestQueueScratch()
     task = _make_task()
     candidates = [_make_node("n_1"), _make_node("n_2")]
     states = {
-        "n_1": NodeState(time_step=0.0, node_id="n_1", queue_length=5,
-                          active_tasks=1, cpu_utilisation=0.8,
-                          memory_utilisation=0.5),
-        "n_2": NodeState(time_step=0.0, node_id="n_2", queue_length=1,
-                          active_tasks=0, cpu_utilisation=0.2,
-                          memory_utilisation=0.1),
+        "n_1": NodeState(
+            time_step=0.0,
+            node_id="n_1",
+            queue_length=5,
+            active_tasks=1,
+            cpu_utilisation=0.8,
+            memory_utilisation=0.5,
+        ),
+        "n_2": NodeState(
+            time_step=0.0,
+            node_id="n_2",
+            queue_length=1,
+            active_tasks=0,
+            cpu_utilisation=0.2,
+            memory_utilisation=0.1,
+        ),
     }
+    ctx = decision_context(task, candidates, states)
 
-    assert allocator.allocate(task, candidates, states, t=0.0) == "n_2"
+    assert allocator.allocate(ctx) == "n_2"

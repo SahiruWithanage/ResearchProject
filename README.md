@@ -16,14 +16,15 @@ The thesis follows a staged plan. The repo updates as I work through each stage.
 
 - [x] **Stages 1–2** - system model and a working simulation scaffold *(current state).*
 - [ ] **Stage 4** - make nodes meaningfully different (edge / fog / cloud, CPU vs GPU, etc.).
-- [ ] **Stage 5** - the deterministic baseline allocators (latency-first, load-aware, weighted-score).
+- [x] **Delay / transmission substage** - fluid link profiles (LAN/Wi-Fi/5G), uplink delay, CPU/transmission split.
+- [x] **Stage 5 (partial)** - `load_aware` and `latency_first` baselines (weighted-score + energy deferred).
 - [ ] **Stage 6** - find the best-possible allocation as a reference point (using MILP).
 - [ ] **Stage 7** - real workload datasets / traces instead of synthetic arrivals.
 - [ ] **Stage 8** - instability scenarios (failures, slowdowns, recovery).
 - [ ] **Stage 9** - the Bayesian allocator (the actual research contribution).
 - [ ] **Stage 10** - comparative experiments and analysis.
 
-The allocator that's in the code right now (`local_first_helper_offload`) is a **scaffold** - it exists to prove the simulator's plumbing works, not as one of the methodology's real baselines. The real baselines arrive in Stage 5.
+The scaffold allocator (`local_first_helper_offload`) proves the pipeline works. **Baseline allocators** `load_aware` and `latency_first` are implemented; see `resources/DELAY_MODEL.md` for the delay model. Add a `network:` block (`instant` or `fluid_link` with LAN/Wi-Fi/5G profiles) so remote tasks incur uplink delay. Example: `configs/load_test.yaml`.
 
 ## Running it
 

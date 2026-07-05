@@ -1,7 +1,6 @@
 """NodeState: one snapshot of a node's runtime state at a given tick."""
 
 from __future__ import annotations
-
 from dataclasses import dataclass
 
 
