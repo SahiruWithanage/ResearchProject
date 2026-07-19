@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from src.config.factory import network_models
@@ -63,3 +64,55 @@ def test_per_link_override() -> None:
         "node_1", "node_h", task, 0.0
     )
     assert d < d_default
+
+
+def test_transfer_time_is_bytes_times_eight_over_bits_per_second() -> None:
+    # 1_000_000 bytes over 8 Mbit/s = exactly 1.0 s; zero base latency.
+    net = FluidLinkNetworkModel(
+        default_profile="wifi",
+        links=[
+            {
+                "from": "node_1",
+                "to": "node_h",
+                "bandwidth_bps": 8.0e6,
+                "base_latency_s": 0.0,
+            },
+        ],
+    )
+    d = net.uplink_delay("node_1", "node_h", _task(data_size=1_000_000.0), 0.0)
+    assert d == pytest.approx(1.0)
+
+
+def test_expected_delay_is_deterministic_and_consumes_no_rng() -> None:
+    rng = np.random.default_rng(7)
+    net = FluidLinkNetworkModel(
+        default_profile="wifi",
+        profiles={"wifi": {"jitter_s": 0.005}},
+        rng=rng,
+    )
+    task = _task(data_size=1_000_000.0)
+
+    state_before = repr(rng.bit_generator.state)
+    estimates = [
+        net.expected_uplink_delay("node_1", "node_h", task, 0.0) for _ in range(5)
+    ]
+    # Same value every time, and the rng state is untouched.
+    assert len(set(estimates)) == 1
+    assert repr(rng.bit_generator.state) == state_before
+
+    # The realized delay does sample jitter (rng state advances).
+    net.uplink_delay("node_1", "node_h", task, 0.0)
+    assert repr(rng.bit_generator.state) != state_before
+
+
+def test_realized_delay_centres_on_expected_delay() -> None:
+    rng = np.random.default_rng(7)
+    net = FluidLinkNetworkModel(
+        default_profile="wifi",
+        profiles={"wifi": {"jitter_s": 0.005}},
+        rng=rng,
+    )
+    task = _task(data_size=1_000_000.0)
+    expected = net.expected_uplink_delay("node_1", "node_h", task, 0.0)
+    realized = net.uplink_delay("node_1", "node_h", task, 0.0)
+    assert abs(realized - expected) <= 0.005

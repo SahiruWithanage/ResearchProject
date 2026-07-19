@@ -73,5 +73,11 @@ logs/
 # ---------------------------------------------------------------------------
 # Project-specific exclusions (kept locally, not version-controlled)
 # ---------------------------------------------------------------------------
-# resources/ holds any other local-only research materials.
+# resources/ holds local-only research materials (thesis docs, PDFs, datasets).
+# Deliberately untracked: commits carry only what's needed to run the
+# simulator on another machine.
 resources/
+
+# Claude Code local files and caches.
+.claude/
+CLAUDE.local.md

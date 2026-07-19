@@ -19,3 +19,12 @@ class InstantNetworkModel(NetworkModel):
         t: float,
     ) -> float:
         return 0.0
+
+    def expected_uplink_delay(
+        self,
+        source_id: str,
+        target_id: str,
+        task: Task,
+        t: float,
+    ) -> float:
+        return 0.0

@@ -252,6 +252,21 @@ def test_different_seed_produces_different_outcomes(poisson_raw):
     assert a_ids != b_ids
 
 
+def test_network_rng_stream_is_distinct_from_every_generator_stream(poisson_raw):
+    # Regression: the network seed used to collide with the first source's
+    # seed (both were spawn child 0 of a fresh SeedSequence), which made the
+    # jitter stream identical to node_1's arrival stream.
+    poisson_raw["network"] = {"type": "fluid_link", "default_profile": "wifi"}
+    env = Environment(parse_config(poisson_raw))
+    network_state = repr(env._network._rng.bit_generator.state)
+    generator_states = [
+        repr(gen.rng.bit_generator.state) for gen in env.generators.values()
+    ]
+    assert network_state not in generator_states
+    # Generators must also be pairwise distinct from each other.
+    assert len(set(generator_states)) == len(generator_states)
+
+
 # ===========================================================================
 # Sandbox flexibility
 # ===========================================================================

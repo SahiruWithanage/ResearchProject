@@ -22,7 +22,13 @@ class CompletionEstimator:
         task: Task,
         t: float,
     ) -> float:
-        return self.network.uplink_delay(source_id, target_id, task, t)
+        """Expected (deterministic) uplink delay for decision-making.
+
+        Deliberately not the sampled delay: estimates may be requested any
+        number of times per decision, so they must never consume randomness.
+        The realized delay is sampled once, at dispatch, by the Environment.
+        """
+        return self.network.expected_uplink_delay(source_id, target_id, task, t)
 
     def compute_duration(self, task: Task, node: EdgeNode) -> float:
         """Seconds of CPU work on ``node`` (parallel workers drain 1 unit/sec each)."""

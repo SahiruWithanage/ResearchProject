@@ -5,7 +5,8 @@
 
 seed: 42
 sim_duration: 30.0
-dt: 1.0
+dt: 0.01   # standard experiment resolution (see DESIGN.md decision 36):
+           # resolves network delays without tick-quantization bias
 
 network:
   type: fluid_link
@@ -40,7 +41,7 @@ nodes:
         type: poisson
         rate: 0.8
         cpu_demand: 2.0
-        data_size: 500000
+        data_size: 500000   # bytes (500 KB); wifi 50 Mbps -> 0.08 s transfer
 
   - id: node_2
     type: source
@@ -52,7 +53,7 @@ nodes:
         type: poisson
         rate: 0.8
         cpu_demand: 2.0
-        data_size: 500000
+        data_size: 500000   # bytes (500 KB)
 
   - id: node_3
     type: helper

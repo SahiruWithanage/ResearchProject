@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import copy
-
-import pytest
-
 from src.config import parse_config
 from src.config.factory import allocators
 from src.controller.allocators import LatencyFirstAllocator, LoadAwareAllocator
@@ -90,7 +86,7 @@ def test_latency_first_picks_lower_uplink_delay() -> None:
     assert a.allocate(ctx) == "node_1"
 
 
-def test_remote_task_arrives_after_transfer(tmp_path: Path) -> None:
+def test_remote_task_arrives_after_transfer() -> None:
     raw = {
         "seed": 1,
         "sim_duration": 5.0,

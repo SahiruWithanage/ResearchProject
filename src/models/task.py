@@ -12,7 +12,7 @@ class Task:
         task_id: unique identifier (e.g. ``"node_1_000042"``).
         arrival_time: when the task entered the system, in simulated seconds.
         task_type: category label (e.g. ``"compute"``), free-form for now.
-        data_size: payload size in abstract units.
+        data_size: payload size in bytes (drives transmission time only).
         cpu_demand: CPU work units required.
         memory_demand: memory units used while running.
         deadline: absolute simulated time by which the task must finish.

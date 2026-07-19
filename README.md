@@ -67,7 +67,7 @@ python experiments/run_phase1.py configs/phase1.yaml --seed 7 --output-dir logs/
 
 - `seed` - controls all randomness. Same seed = same output every time.
 - `sim_duration` - how many simulated seconds the run goes for.
-- `dt` - size of one simulator tick, in seconds (e.g. `1.0` or `0.1`).
+- `dt` - size of one simulator tick, in seconds. Use `0.01` for real experiments (fine enough that network delays aren't distorted by tick rounding); `1.0` is fine for quick smoke tests with the `instant` network.
 - `nodes` - the list of compute nodes. Each has a type (`source` or `helper`), a CPU and memory capacity, and a tier label. You can add as many as you want, the simulator handles it.
 - For source nodes, the `source.generator` block picks the arrival pattern ( Currently `poisson` or `fixed_interval`) and its parameters (e.g. `rate`, `cpu_demand`).
 - `controllers` - which controller is in charge of which nodes, and which allocator it uses. The allocator's own settings (like `max_local_queue` for the scaffold rule) go inside its block.

@@ -38,7 +38,15 @@ class Environment:
         self.config = config
         self._clock = Clock(dt=config.dt)
         self._transit = TransitQueue()
-        self._network = self._build_network(config)
+
+        # One SeedSequence feeds every random stream. Sources take children
+        # 0..n-1 (stable spawn keys), the network takes child n; spawning from
+        # separate SeedSequence objects would hand out colliding streams.
+        seed_seq = np.random.SeedSequence(config.seed)
+        source_nodes = [n for n in config.nodes if n.type == "source"]
+        sub_seeds = seed_seq.spawn(len(source_nodes) + 1)
+
+        self._network = self._build_network(config, sub_seeds[len(source_nodes)])
         self._estimator = CompletionEstimator(self._network)
 
         self.nodes: dict[str, EdgeNode] = {}
@@ -53,10 +61,6 @@ class Environment:
             )
             self.nodes[node.node_id] = node
             self.runtimes[node.node_id] = NodeRuntime(node)
-
-        seed_seq = np.random.SeedSequence(config.seed)
-        source_nodes = [n for n in config.nodes if n.type == "source"]
-        sub_seeds = seed_seq.spawn(len(source_nodes))
 
         self.generators: dict[str, TaskGenerator] = {}
         for node_cfg, sub_seed in zip(source_nodes, sub_seeds):
@@ -73,9 +77,7 @@ class Environment:
         for ctrl_cfg in config.controllers:
             alloc_cls = allocators.get(ctrl_cfg.allocator.type)
             alloc = alloc_cls(**ctrl_cfg.allocator.params)
-            managed_runtimes = [
-                self.runtimes[node_id] for node_id in ctrl_cfg.manages
-            ]
+            managed_runtimes = [self.runtimes[node_id] for node_id in ctrl_cfg.manages]
             ctrl = Controller(
                 id=ctrl_cfg.id,
                 allocator=alloc,
@@ -87,12 +89,13 @@ class Environment:
             for runtime in managed_runtimes:
                 self._controller_by_node[runtime.node_id] = ctrl
 
-    def _build_network(self, config: SimulationConfig):
+    def _build_network(
+        self, config: SimulationConfig, network_seed: np.random.SeedSequence
+    ):
         net_cfg = config.network
         net_cls = network_models.get(net_cfg.type)
         kwargs = dict(net_cfg.params)
         if net_cfg.type == "fluid_link":
-            network_seed = np.random.SeedSequence(config.seed).spawn(1)[0]
             kwargs.update(
                 default_profile=net_cfg.default_profile,
                 profiles=net_cfg.profiles,
@@ -172,9 +175,7 @@ class Environment:
     def _controller_for_task(self, task: Task) -> Controller:
         source = task.source_node_id
         if source is None:
-            raise RuntimeError(
-                f"task {task.task_id!r} has no source_node_id"
-            )
+            raise RuntimeError(f"task {task.task_id!r} has no source_node_id")
         ctrl = self._controller_by_node.get(source)
         if ctrl is None:
             raise RuntimeError(

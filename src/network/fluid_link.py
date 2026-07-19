@@ -1,4 +1,10 @@
-"""Fluid link model: bandwidth + base latency + optional jitter."""
+"""Fluid link model: bandwidth + base latency + optional jitter.
+
+Units (pinned; see resources/DELAY_MODEL.md):
+    - ``Task.data_size`` is in **bytes**.
+    - ``bandwidth_bps`` is in **bits per second** (so LAN 1 Gbps = 1.0e9).
+    - transfer time = ``data_size * 8 / bandwidth_bps`` seconds.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +17,9 @@ from src.config.factory import network_models
 from src.models import Task
 from src.network.base import NetworkModel
 
-# Built-in profile defaults (bytes/s, seconds). Override via YAML.
+_BITS_PER_BYTE = 8.0
+
+# Built-in profile defaults (bits/s, seconds). Override via YAML.
 _BUILTIN_PROFILES: dict[str, dict[str, float]] = {
     "lan": {"bandwidth_bps": 1.0e9, "base_latency_s": 0.001, "jitter_s": 0.0},
     "wifi": {"bandwidth_bps": 50.0e6, "base_latency_s": 0.010, "jitter_s": 0.0},
@@ -30,7 +38,11 @@ class _LinkSpec:
 
 @network_models.register("fluid_link")
 class FluidLinkNetworkModel(NetworkModel):
-    """One-way delay = base_latency + data_size/bandwidth + jitter sample.
+    """One-way delay = base_latency + data_size*8/bandwidth + jitter sample.
+
+    ``expected_uplink_delay`` returns the deterministic part only (jitter
+    has zero mean) and never touches the rng; ``uplink_delay`` adds one
+    jitter sample per call.
 
     Args:
         default_profile: Profile name for links without an explicit override.
@@ -65,11 +77,27 @@ class FluidLinkNetworkModel(NetworkModel):
         if source_id == target_id:
             return 0.0
         spec = self._resolve_spec(source_id, target_id)
-        transfer = 0.0 if spec.bandwidth_bps == float("inf") else (
-            task.data_size / spec.bandwidth_bps
-        )
         jitter = self._sample_jitter(spec.jitter_s)
-        return max(0.0, spec.base_latency_s + transfer + jitter)
+        return max(0.0, self._deterministic_delay(spec, task) + jitter)
+
+    def expected_uplink_delay(
+        self,
+        source_id: str,
+        target_id: str,
+        task: Task,
+        t: float,
+    ) -> float:
+        if source_id == target_id:
+            return 0.0
+        spec = self._resolve_spec(source_id, target_id)
+        return self._deterministic_delay(spec, task)
+
+    @staticmethod
+    def _deterministic_delay(spec: _LinkSpec, task: Task) -> float:
+        transfer = 0.0 if spec.bandwidth_bps == float("inf") else (
+            task.data_size * _BITS_PER_BYTE / spec.bandwidth_bps
+        )
+        return spec.base_latency_s + transfer
 
     def _resolve_spec(self, source_id: str, target_id: str) -> _LinkSpec:
         key = (source_id, target_id)

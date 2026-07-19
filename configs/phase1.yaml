@@ -5,7 +5,8 @@
 
 seed: 42            # master seed for all randomness, same seed = same output
 sim_duration: 500.0 # how long the simulation runs, in simulated seconds
-dt: 1.0             # size of one tick, in simulated seconds
+dt: 1.0             # coarse tick: fine for smoke tests with an instant network.
+                    # Real experiments use dt: 0.01 (DESIGN.md decision 36).
 
 # ---- controllers -----------------------------------------------------------
 # A controller decides where each new task goes. Phase 1 has just one.
