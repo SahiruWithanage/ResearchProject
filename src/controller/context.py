@@ -11,7 +11,14 @@ from src.simulation.estimates import CompletionEstimator
 
 @dataclass(frozen=True, slots=True)
 class DecisionContext:
-    """Snapshot passed to every allocator invocation."""
+    """Snapshot passed to every allocator invocation.
+
+    ``candidates`` contains only *eligible* nodes: suitable for the task
+    (type / memory / GPU) and currently with queue room. The Controller
+    filters before calling the allocator, so strategies never need to
+    re-check suitability or fullness. ``states`` still covers every managed
+    node (eligible or not) for allocators that want wider context.
+    """
 
     task: Task
     candidates: Sequence[EdgeNode]

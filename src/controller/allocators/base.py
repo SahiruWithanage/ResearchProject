@@ -17,4 +17,8 @@ class Allocator(ABC):
 
     @abstractmethod
     def allocate(self, context: DecisionContext) -> str:
-        """Return the ``node_id`` of the chosen candidate."""
+        """Return the ``node_id`` of one of ``context.candidates``.
+
+        Candidates are pre-filtered to eligible nodes (suitable and with
+        room); returning a node outside the candidate set is an error.
+        """

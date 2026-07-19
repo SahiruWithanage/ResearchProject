@@ -20,7 +20,11 @@ class SourceConfig:
 
 @dataclass(frozen=True, slots=True)
 class NodeConfig:
-    """Static config for one node from YAML."""
+    """Static config for one node from YAML (after node_profiles merging).
+
+    Heterogeneity fields (Stage 4) all default to the homogeneous Phase 1
+    behaviour, so old configs run unchanged.
+    """
     id: str
     type: str
     cpu_capacity: float
@@ -29,6 +33,11 @@ class NodeConfig:
     source: SourceConfig | None = (
         None  # required for source nodes, forbidden for helpers
     )
+    cpu_speed: float = 1.0
+    queue_limit: int | None = None
+    accepts_task_types: tuple[str, ...] | None = None
+    gpu_capacity: float = 0.0
+    energy_cost_factor: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)

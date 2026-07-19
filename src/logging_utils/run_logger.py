@@ -21,6 +21,7 @@ _ALLOC_FIELDS: tuple[str, ...] = (
     "compute_start",
     "actual_completion_time",
     "deadline_met",
+    "task_lost",
 )
 
 _STATE_FIELDS: tuple[str, ...] = (
@@ -79,13 +80,14 @@ class RunLogger:
                         o.task_id,
                         _fmt_float(o.decision_time),
                         o.allocator_type,
-                        o.selected_node,
+                        o.selected_node or "",
                         _fmt_float(o.estimated_completion_time),
                         _fmt_float(o.transfer_start),
                         _fmt_float(o.transfer_end),
                         _fmt_float(o.compute_start),
                         _fmt_float(o.actual_completion_time),
                         _fmt_bool(o.deadline_met),
+                        _fmt_bool(o.task_lost),
                     ]
                 )
 

@@ -5,6 +5,8 @@ import math
 from dataclasses import dataclass
 from src.models import EdgeNode, NodeState, Task
 
+_MEMORY_EPS = 1e-12  # float-tolerance for memory-fit comparisons
+
 
 @dataclass(slots=True)
 class _ActiveTask:
@@ -19,15 +21,28 @@ class NodeRuntime:
     work-advancement logic:
 
     - ``K = max(1, floor(cpu_capacity))`` parallel workers.
-    - Each worker drains 1.0 work units per simulated second.
+    - Each worker drains ``cpu_speed`` work units per simulated second
+      (1.0 = reference speed; a 0.5-speed node takes twice as long).
     - Each task carries ``cpu_demand`` work units (``data_size`` is for transmission).
-    - Queue discipline is FIFO, a freed worker takes the next queued task.
+    - Queue discipline is FIFO. A queued task is promoted to a free worker
+      only if its ``memory_demand`` fits in the remaining memory; if the
+      head task doesn't fit, it waits (head-of-line, keeps FIFO honest).
+    - ``queue_limit`` (if set) caps active + waiting; see :meth:`has_room`.
+      Enforced at *allocation* time by the Controller, not by ``enqueue`` —
+      tasks already in transit are accepted on arrival even if the node
+      filled up meanwhile (the consequences of stale decisions are a
+      Stage 8 topic).
     """
 
     def __init__(self, node: EdgeNode) -> None:
         self.node = node
-        # K = max(1, floor(cpu_capacity)) parallel workers, each draining 1 unit/sec.
+        # K = max(1, floor(cpu_capacity)) parallel workers.
         self.workers: int = max(1, math.floor(node.cpu_capacity))
+        self.speed: float = float(node.cpu_speed)
+        if self.speed <= 0:
+            raise ValueError(
+                f"node {node.node_id!r} cpu_speed must be > 0, got {self.speed}"
+            )
         self._active: list[_ActiveTask] = []
         self._queue: list[Task] = []
 
@@ -44,24 +59,30 @@ class NodeRuntime:
     def active_count(self) -> int:
         return len(self._active)
 
+    def has_room(self) -> bool:
+        """True if the node may be *allocated* another task right now."""
+        limit = self.node.queue_limit
+        return limit is None or self.queue_length < limit
+
     def enqueue(self, task: Task) -> None:
         self._queue.append(task)
         self._fill_active_slots()
 
     def advance(self, dt: float, t_start: float) -> list[tuple[Task, float]]:
-        """Drain `dt` units from each active task. Return tasks that finished this tick."""
+        """Drain `dt * speed` from each active task. Return tasks that finished this tick."""
         if dt <= 0:
             raise ValueError(f"dt must be > 0, got {dt}")
 
+        drained = dt * self.speed
         completed: list[tuple[Task, float]] = []
         still_active: list[_ActiveTask] = []
         for entry in self._active:
-            if entry.remaining_work <= dt:
+            if entry.remaining_work <= drained:
                 # Sub-tick-accurate completion time so deadline checks aren't lossy.
-                completion_time = t_start + entry.remaining_work
+                completion_time = t_start + entry.remaining_work / self.speed
                 completed.append((entry.task, completion_time))
             else:
-                entry.remaining_work -= dt
+                entry.remaining_work -= drained
                 still_active.append(entry)
         self._active = still_active
         completed.sort(key=lambda pair: (pair[1], pair[0].task_id))
@@ -70,7 +91,7 @@ class NodeRuntime:
         return completed
 
     def snapshot(self, t: float) -> NodeState:
-        memory_used = sum(e.task.memory_demand for e in self._active)
+        memory_used = self._memory_used()
         memory_util = (
             memory_used / self.node.memory_capacity
             if self.node.memory_capacity > 0
@@ -90,8 +111,18 @@ class NodeRuntime:
             memory_utilisation=memory_util,
         )
 
+    def _memory_used(self) -> float:
+        return sum(e.task.memory_demand for e in self._active)
+
     def _fill_active_slots(self) -> None:
         while len(self._active) < self.workers and self._queue:
-            task = self._queue.pop(0)
-            work = task.cpu_demand
-            self._active.append(_ActiveTask(task=task, remaining_work=work))
+            task = self._queue[0]
+            fits = (
+                self._memory_used() + task.memory_demand
+                <= self.node.memory_capacity + _MEMORY_EPS
+            )
+            if not fits:
+                # Head-of-line wait: memory frees up when active tasks finish.
+                break
+            self._queue.pop(0)
+            self._active.append(_ActiveTask(task=task, remaining_work=task.cpu_demand))

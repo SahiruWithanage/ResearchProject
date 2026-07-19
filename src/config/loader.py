@@ -12,6 +12,12 @@ What this loader checks:
 - Node IDs and controller IDs are unique.
 - node.type is one of "source" or "helper".
 - Source nodes have a `source` block, helper nodes don't.
+- Heterogeneity fields are valid (cpu_speed > 0, queue_limit >= 1,
+  accepts_task_types a non-empty list of strings, gpu_capacity >= 0,
+  energy_cost_factor >= 0).
+- `node_profiles` entries only contain known node fields; each node's
+  `profile` (if any) names a defined profile. Per-node fields override
+  profile values.
 - Each controller.manages entry refers to a real node ID.
 - Each controller.parent (if not null) refers to a real controller ID.
 - Every node is managed by exactly one controller.
@@ -80,10 +86,12 @@ def parse_config(raw: Mapping[str, Any]) -> SimulationConfig:
     if dt <= 0:
         raise ConfigError(f"dt must be > 0, got {dt}")
 
+    profiles = _parse_node_profiles(raw.get("node_profiles"))
+
     raw_nodes = _require_list(raw, "nodes")
     if len(raw_nodes) < 2:
         raise ConfigError(f"nodes must have at least 2 entries, got {len(raw_nodes)}")
-    nodes = [_parse_node(n, idx) for idx, n in enumerate(raw_nodes)]
+    nodes = [_parse_node(n, idx, profiles) for idx, n in enumerate(raw_nodes)]
     _check_unique_ids(nodes, "node")
 
     raw_controllers = _require_list(raw, "controllers")
@@ -113,11 +121,69 @@ def parse_config(raw: Mapping[str, Any]) -> SimulationConfig:
 # ---------------------------------------------------------------------------
 
 
-def _parse_node(raw: Any, idx: int) -> NodeConfig:
-    """Parse one node block: validate type, capacities, and source/helper rules."""
+# Fields a node_profiles entry may define (structural keys like id/type/
+# source/profile stay on the node itself).
+_PROFILE_FIELDS = frozenset(
+    {
+        "cpu_capacity",
+        "memory_capacity",
+        "tier",
+        "cpu_speed",
+        "queue_limit",
+        "accepts_task_types",
+        "gpu_capacity",
+        "energy_cost_factor",
+    }
+)
+
+
+def _parse_node_profiles(raw: Any) -> dict[str, dict[str, Any]]:
+    """Parse the optional top-level `node_profiles` block."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, Mapping):
+        raise ConfigError(
+            f"node_profiles must be a mapping, got {type(raw).__name__}"
+        )
+    profiles: dict[str, dict[str, Any]] = {}
+    for name, spec in raw.items():
+        where = f"node_profiles[{name!r}]"
+        if not isinstance(spec, Mapping):
+            raise ConfigError(f"{where} must be a mapping, got {type(spec).__name__}")
+        unknown = set(spec) - _PROFILE_FIELDS
+        if unknown:
+            raise ConfigError(
+                f"{where} has unknown fields {sorted(unknown)}; "
+                f"allowed: {sorted(_PROFILE_FIELDS)}"
+            )
+        profiles[str(name)] = dict(spec)
+    return profiles
+
+
+def _parse_node(
+    raw: Any, idx: int, profiles: dict[str, dict[str, Any]]
+) -> NodeConfig:
+    """Parse one node block: resolve profile, validate capacities and rules."""
     where = f"nodes[{idx}]"
     if not isinstance(raw, Mapping):
         raise ConfigError(f"{where} must be a mapping, got {type(raw).__name__}")
+
+    # Profile resolution: profile values first, per-node fields override.
+    profile_name = raw.get("profile")
+    if profile_name is not None:
+        if not isinstance(profile_name, str):
+            raise ConfigError(
+                f"{where}.profile must be a string, got "
+                f"{type(profile_name).__name__}: {profile_name!r}"
+            )
+        if profile_name not in profiles:
+            raise ConfigError(
+                f"{where}.profile is {profile_name!r}, which is not defined "
+                f"in node_profiles. known profiles: {sorted(profiles)}"
+            )
+        merged: dict[str, Any] = dict(profiles[profile_name])
+        merged.update({k: v for k, v in raw.items() if k != "profile"})
+        raw = merged
 
     node_id = _require_str(raw, "id", where)
     node_type = _require_str(raw, "type", where)
@@ -134,6 +200,49 @@ def _parse_node(raw: Any, idx: int) -> NodeConfig:
         raise ConfigError(f"{where}.cpu_capacity must be > 0, got {cpu_capacity}")
     if memory_capacity <= 0:
         raise ConfigError(f"{where}.memory_capacity must be > 0, got {memory_capacity}")
+
+    cpu_speed = raw.get("cpu_speed", 1.0)
+    if not _is_number(cpu_speed) or float(cpu_speed) <= 0:
+        raise ConfigError(f"{where}.cpu_speed must be a number > 0, got {cpu_speed!r}")
+
+    queue_limit = raw.get("queue_limit")
+    if queue_limit is not None:
+        if isinstance(queue_limit, bool) or not isinstance(queue_limit, int):
+            raise ConfigError(
+                f"{where}.queue_limit must be an int, got "
+                f"{type(queue_limit).__name__}: {queue_limit!r}"
+            )
+        if queue_limit < 1:
+            raise ConfigError(f"{where}.queue_limit must be >= 1, got {queue_limit}")
+
+    accepts_raw = raw.get("accepts_task_types")
+    accepts: tuple[str, ...] | None = None
+    if accepts_raw is not None:
+        if not isinstance(accepts_raw, list) or not accepts_raw:
+            raise ConfigError(
+                f"{where}.accepts_task_types must be a non-empty list, "
+                f"got {accepts_raw!r}"
+            )
+        for i, item in enumerate(accepts_raw):
+            if not isinstance(item, str):
+                raise ConfigError(
+                    f"{where}.accepts_task_types[{i}] must be a string, "
+                    f"got {type(item).__name__}: {item!r}"
+                )
+        accepts = tuple(accepts_raw)
+
+    gpu_capacity = raw.get("gpu_capacity", 0.0)
+    if not _is_number(gpu_capacity) or float(gpu_capacity) < 0:
+        raise ConfigError(
+            f"{where}.gpu_capacity must be a number >= 0, got {gpu_capacity!r}"
+        )
+
+    energy_cost_factor = raw.get("energy_cost_factor", 1.0)
+    if not _is_number(energy_cost_factor) or float(energy_cost_factor) < 0:
+        raise ConfigError(
+            f"{where}.energy_cost_factor must be a number >= 0, "
+            f"got {energy_cost_factor!r}"
+        )
 
     raw_source = raw.get("source")
     if node_type == "source":
@@ -157,6 +266,11 @@ def _parse_node(raw: Any, idx: int) -> NodeConfig:
         memory_capacity=memory_capacity,
         tier=tier,
         source=source,
+        cpu_speed=float(cpu_speed),
+        queue_limit=queue_limit,
+        accepts_task_types=accepts,
+        gpu_capacity=float(gpu_capacity),
+        energy_cost_factor=float(energy_cost_factor),
     )
 
 

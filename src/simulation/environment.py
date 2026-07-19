@@ -58,6 +58,11 @@ class Environment:
                 cpu_capacity=node_cfg.cpu_capacity,
                 memory_capacity=node_cfg.memory_capacity,
                 tier=node_cfg.tier,
+                cpu_speed=node_cfg.cpu_speed,
+                queue_limit=node_cfg.queue_limit,
+                accepts_task_types=node_cfg.accepts_task_types,
+                gpu_capacity=node_cfg.gpu_capacity,
+                energy_cost_factor=node_cfg.energy_cost_factor,
             )
             self.nodes[node.node_id] = node
             self.runtimes[node.node_id] = NodeRuntime(node)
@@ -150,6 +155,9 @@ class Environment:
         )
 
     def _dispatch(self, task: Task, outcome: AllocationOutcome) -> None:
+        if outcome.task_lost:
+            return  # dropped at decision time: no enqueue, no transit
+
         target = outcome.selected_node
         source = task.source_node_id
         t = outcome.decision_time

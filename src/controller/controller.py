@@ -39,7 +39,6 @@ class Controller:
         self._runtime_by_node: dict[str, NodeRuntime] = {
             rt.node_id: rt for rt in managed_nodes
         }
-        self._candidates: list[EdgeNode] = [rt.node for rt in managed_nodes]
         self.outcomes: dict[str, AllocationOutcome] = {}
 
     def submit(
@@ -48,11 +47,37 @@ class Controller:
         t: float,
         estimator: CompletionEstimator,
     ) -> AllocationOutcome:
-        """Run the allocator and record the decision (no enqueue)."""
+        """Run the allocator and record the decision (no enqueue).
+
+        Allocators only ever see *eligible* candidates: nodes that are
+        suitable for the task (type / memory / GPU) and currently have
+        room (queue limit). If no node is eligible — including the task's
+        own source — the task is recorded as lost. A task is therefore
+        never dropped while its source still has room, because a
+        with-room source is itself an eligible candidate.
+        """
         states = {rt.node_id: rt.snapshot(t) for rt in self.managed_nodes}
+        eligible: list[EdgeNode] = [
+            rt.node
+            for rt in self.managed_nodes
+            if rt.node.is_suitable(task) and rt.has_room()
+        ]
+
+        if not eligible:
+            outcome = AllocationOutcome(
+                task_id=task.task_id,
+                decision_time=t,
+                allocator_type=self.allocator_type,
+                selected_node=None,
+                estimated_completion_time=None,
+                task_lost=True,
+            )
+            self.outcomes[task.task_id] = outcome
+            return outcome
+
         context = DecisionContext(
             task=task,
-            candidates=self._candidates,
+            candidates=eligible,
             states=states,
             t=t,
             estimator=estimator,
@@ -64,6 +89,12 @@ class Controller:
                 f"allocator returned unknown node_id {chosen_id!r} for "
                 f"task {task.task_id!r}; controller {self.id!r} manages "
                 f"{sorted(self._runtime_by_node)}"
+            )
+        if all(node.node_id != chosen_id for node in eligible):
+            raise RuntimeError(
+                f"allocator returned ineligible node_id {chosen_id!r} for "
+                f"task {task.task_id!r} (full or unsuitable); eligible: "
+                f"{sorted(n.node_id for n in eligible)}"
             )
 
         source_id = task.source_node_id or chosen_id

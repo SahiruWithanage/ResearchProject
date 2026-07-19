@@ -197,6 +197,7 @@ def _print_summary(
     snapshots = result.snapshots
     completed = [o for o in outcomes if o.actual_completion_time is not None]
     met = [o for o in completed if o.deadline_met]
+    lost = [o for o in outcomes if o.task_lost]
 
     print("=" * 60)
     print("Run complete")
@@ -207,13 +208,17 @@ def _print_summary(
 
     print(f"  Tasks generated:  {len(outcomes)}")
     print(f"  Tasks completed:  {len(completed)}/{len(outcomes)}")
+    if lost:
+        print(f"  Tasks lost:       {len(lost)} (no eligible node had room)")
     if completed:
         rate = 100.0 * len(met) / len(completed)
         print(f"  Deadlines met:    {len(met)}/{len(completed)} ({rate:.1f}%)")
     print()
 
     if outcomes:
-        per_node = Counter(o.selected_node for o in outcomes)
+        per_node = Counter(
+            o.selected_node for o in outcomes if o.selected_node is not None
+        )
         print("  Tasks placed on each node (by allocator):")
         print("    (how many tasks were sent to run on that node)")
         for node in config.nodes:

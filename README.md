@@ -14,8 +14,8 @@ To test that, I'm building a Python simulator where I can plug in different allo
 
 The thesis follows a staged plan. The repo updates as I work through each stage.
 
-- [x] **Stages 1–2** - system model and a working simulation scaffold *(current state).*
-- [ ] **Stage 4** - make nodes meaningfully different (edge / fog / cloud, CPU vs GPU, etc.).
+- [x] **Stages 1–2** - system model and a working simulation scaffold.
+- [x] **Stage 4** - heterogeneous nodes *(current state)*: per-node `cpu_speed`, enforced memory, `queue_limit` (overflow tasks can be lost + logged), task-type suitability, and reusable `node_profiles` in YAML. GPU processing and reliability behaviour deferred (fields exist). Example: `configs/heterogeneous.yaml`.
 - [x] **Delay / transmission substage** - fluid link profiles (LAN/Wi-Fi/5G), uplink delay, CPU/transmission split.
 - [x] **Stage 5 (partial)** - `load_aware` and `latency_first` baselines (weighted-score + energy deferred).
 - [ ] **Stage 6** - find the best-possible allocation as a reference point (using MILP).
@@ -68,7 +68,8 @@ python experiments/run_phase1.py configs/phase1.yaml --seed 7 --output-dir logs/
 - `seed` - controls all randomness. Same seed = same output every time.
 - `sim_duration` - how many simulated seconds the run goes for.
 - `dt` - size of one simulator tick, in seconds. Use `0.01` for real experiments (fine enough that network delays aren't distorted by tick rounding); `1.0` is fine for quick smoke tests with the `instant` network.
-- `nodes` - the list of compute nodes. Each has a type (`source` or `helper`), a CPU and memory capacity, and a tier label. You can add as many as you want, the simulator handles it.
+- `nodes` - the list of compute nodes. Each has a type (`source` or `helper`), a CPU and memory capacity, and a tier label. You can add as many as you want, the simulator handles it. Optional heterogeneity knobs per node: `cpu_speed` (0.5 = half-speed device), `queue_limit` (full nodes are skipped; if nowhere has room the task is dropped and logged as lost), `accepts_task_types` (task suitability), `gpu_capacity`, `energy_cost_factor`.
+- `node_profiles` - optional named presets (like `sensor_class` or `edge_server`) so several nodes can share one spec via `profile: <name>`; per-node fields override the profile. See `configs/heterogeneous.yaml`.
 - For source nodes, the `source.generator` block picks the arrival pattern ( Currently `poisson` or `fixed_interval`) and its parameters (e.g. `rate`, `cpu_demand`).
 - `controllers` - which controller is in charge of which nodes, and which allocator it uses. The allocator's own settings (like `max_local_queue` for the scaffold rule) go inside its block.
 - `logging` - where output files go and how often to snapshot node state.

@@ -31,9 +31,13 @@ class CompletionEstimator:
         return self.network.expected_uplink_delay(source_id, target_id, task, t)
 
     def compute_duration(self, task: Task, node: EdgeNode) -> float:
-        """Seconds of CPU work on ``node`` (parallel workers drain 1 unit/sec each)."""
-        workers = max(1, math.floor(node.cpu_capacity))
-        return task.cpu_demand / workers
+        """Seconds this task computes on ``node``.
+
+        A task occupies exactly one worker, so worker *count* doesn't speed
+        it up — only the node's ``cpu_speed`` does. (Historical note: this
+        used to divide by the worker count, which didn't match the engine.)
+        """
+        return task.cpu_demand / node.cpu_speed
 
     def queue_wait_proxy(
         self,
@@ -41,9 +45,13 @@ class CompletionEstimator:
         task: Task,
         node: EdgeNode,
     ) -> float:
-        """Each task already in the system adds one average service interval."""
+        """Rough queue-wait estimate: tasks ahead / node throughput.
+
+        Throughput is ``workers * cpu_speed`` work units per second; each
+        queued task is assumed to carry this task's ``cpu_demand``.
+        """
         workers = max(1, math.floor(node.cpu_capacity))
-        service = task.cpu_demand / workers
+        service = task.cpu_demand / (workers * node.cpu_speed)
         return state.queue_length * service
 
     def estimated_completion(

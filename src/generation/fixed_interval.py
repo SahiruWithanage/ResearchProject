@@ -29,6 +29,7 @@ class FixedIntervalGenerator(TaskGenerator):
         memory_demand: float = 1.0,
         deadline_offset: float = 5.0,
         priority: int = 1,
+        gpu_demand: float = 0.0,
     ) -> None:
         if interval <= 0:
             raise ValueError(f"interval must be > 0, got {interval}")
@@ -46,6 +47,7 @@ class FixedIntervalGenerator(TaskGenerator):
         self.memory_demand = float(memory_demand)
         self.deadline_offset = float(deadline_offset)
         self.priority = int(priority)
+        self.gpu_demand = float(gpu_demand)
 
     def emit(self, t_start: float, t_end: float) -> list[Task]:
         if t_end < t_start:
@@ -84,4 +86,5 @@ class FixedIntervalGenerator(TaskGenerator):
             deadline=arrival_time + self.deadline_offset,
             priority=self.priority,
             source_node_id=self.source_node_id,
+            gpu_demand=self.gpu_demand,
         )

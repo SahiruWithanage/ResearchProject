@@ -19,6 +19,9 @@ class Task:
         priority: integer priority. Unused in Phase 1, kept for later stages.
         source_node_id: which node generated this task. Used for routing.
         source_timestamp: original timestamp from a trace dataset, if any.
+        gpu_demand: GPU work units required. 0.0 = pure-CPU task. Nodes
+            without GPU capacity are unsuitable for tasks that demand GPU;
+            GPU *processing* is not modelled yet (Stage 4 defers it).
     """
 
     task_id: str
@@ -31,3 +34,4 @@ class Task:
     priority: int
     source_node_id: str | None = None
     source_timestamp: float | None = None
+    gpu_demand: float = 0.0
