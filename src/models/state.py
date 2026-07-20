@@ -18,6 +18,11 @@ class NodeState:
         active_tasks: how many tasks are currently being worked on.
         cpu_utilisation: ``active_tasks / cpu_capacity``, in [0, 1].
         memory_utilisation: sum of active ``memory_demand`` divided by ``memory_capacity``.
+        reliability_score: how dependable the node currently is, in [0, 1].
+            1.0 = fully healthy; degraded by Stage 8 scenarios. Purely
+            informational for deterministic baselines; input for the
+            reliability_threshold allocator and the Bayesian layer.
+        failure_state: ``"normal"``, ``"recovering"``, or ``"failed"``.
     """
 
     time_step: float
@@ -26,3 +31,5 @@ class NodeState:
     active_tasks: int
     cpu_utilisation: float
     memory_utilisation: float
+    reliability_score: float = 1.0
+    failure_state: str = "normal"

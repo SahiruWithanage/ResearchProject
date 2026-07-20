@@ -20,6 +20,8 @@ from src.models import AllocationOutcome, EdgeNode, NodeState, Task
 from src.simulation.clock import Clock
 from src.simulation.estimates import CompletionEstimator
 from src.simulation.processing import NodeRuntime
+from src.config.factory import scenarios as scenario_registry
+from src.simulation.scenarios import Scenario  # noqa: F401 — registers scenarios
 from src.simulation.transit import TransitQueue
 
 
@@ -100,6 +102,11 @@ class Environment:
             for runtime in managed_runtimes:
                 self._controller_by_node[runtime.node_id] = ctrl
 
+        self._scenarios: list[Scenario] = []
+        for sc_cfg in config.scenarios:
+            sc_cls = scenario_registry.get(sc_cfg.type)
+            self._scenarios.append(sc_cls(**sc_cfg.params))
+
     def _build_network(
         self, config: SimulationConfig, network_seed: np.random.SeedSequence
     ):
@@ -130,6 +137,10 @@ class Environment:
             t_start = self._clock.t
             t_end = min(t_start + self._clock.dt, self.config.sim_duration)
             actual_dt = t_end - t_start
+
+            # Instability first: failures/recoveries take effect for this tick.
+            for scenario in self._scenarios:
+                scenario.tick(t_start, self)
 
             for runtime in self.runtimes.values():
                 completed = runtime.advance(actual_dt, t_start)
@@ -214,10 +225,35 @@ class Environment:
             )
             self._return_transit.schedule(task, source, completion_time + delay)
 
+    # ------------------------------------------------------------------
+    # Scenario world hooks (see src/simulation/scenarios.py)
+    # ------------------------------------------------------------------
+
+    def fail_node(self, node_id: str) -> None:
+        """Crash a node: everything it held is lost."""
+        for task in self.runtimes[node_id].fail():
+            self._controller_for_task(task).record_loss(task)
+
+    def begin_node_recovery(self, node_id: str, speed_factor: float) -> None:
+        self.runtimes[node_id].begin_recovery(speed_factor)
+
+    def restore_node(self, node_id: str) -> None:
+        self.runtimes[node_id].restore()
+
+    def set_node_reliability(self, node_id: str, value: float) -> None:
+        self.runtimes[node_id].reliability_score = float(value)
+
+    # ------------------------------------------------------------------
+
     def _deliver_transit(self, t_end: float) -> None:
         for entry in self._transit.deliver_due(t_end):
-            self.runtimes[entry.target_node_id].enqueue(entry.task)
+            runtime = self.runtimes[entry.target_node_id]
             ctrl = self._controller_for_task(entry.task)
+            if not runtime.is_available():
+                # Arrived at a crashed node: nobody there to receive it.
+                ctrl.record_loss(entry.task)
+                continue
+            runtime.enqueue(entry.task)
             outcome = ctrl.outcomes[entry.task.task_id]
             outcome.compute_start = entry.arrive_at
 

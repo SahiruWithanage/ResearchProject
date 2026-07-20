@@ -172,6 +172,12 @@ def _print_experiment_setup(config: SimulationConfig) -> None:
                 f"cpu={node.cpu_capacity}"
             )
 
+    if config.scenarios:
+        print("  Instability scenarios:")
+        for sc in config.scenarios:
+            params = ", ".join(f"{k}={v}" for k, v in sorted(sc.params.items()))
+            print(f"    {sc.type}  ({params})")
+
     net = config.network
     print(f"  Network:       {net.type}")
     if net.type == "fluid_link":

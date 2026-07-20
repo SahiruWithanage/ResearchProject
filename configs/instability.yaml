@@ -1,0 +1,93 @@
+# Stage 8 instability showcase: every stability-risk factor at once.
+#
+#   workload fluctuation    - piecewise burst on node_1's arrival rate
+#   latency variation       - varying_fluid_link network (quality drifts)
+#   reliability degradation - node_2's score decays over the run
+#   failure / recovery      - the helper crashes at t=120, limps back at t=150
+#   partial observability   - heartbeat reports (dead nodes go silent)
+#
+# Watch the summary: tasks lost during the outage, redistribution to the
+# remaining nodes, and the helper's failure_state column in state_log.csv.
+
+seed: 42
+sim_duration: 300.0
+dt: 0.01
+
+network:
+  type: varying_fluid_link
+  default_profile: wifi
+  params:
+    variation_period_s: 20.0
+    bandwidth_variation: 0.4
+
+scenarios:
+  - type: node_failure
+    node: node_h
+    fail_at: 100.0               # crashes mid-burst: the worst moment
+    recover_at: 130.0
+    recovery_duration: 30.0      # limps at half speed until t=160
+    recovery_speed_factor: 0.5
+  - type: reliability_decay
+    node: node_2
+    start: 60.0
+    end: 240.0
+    to_value: 0.3                # slowly becomes undependable
+
+controllers:
+  - id: ctrl_main
+    allocator:
+      type: weighted_score       # try reliability_threshold here too
+    observability:
+      type: heartbeat
+      interval: 1.0
+      report_delay: 0.02
+    scheduling_delay: 0.02
+    manages: [node_1, node_2, node_h]
+    parent: null
+
+nodes:
+  - id: node_1
+    type: source
+    cpu_capacity: 1.0
+    memory_capacity: 8.0
+    tier: edge
+    queue_limit: 6
+    source:
+      generator:
+        type: poisson
+        rate:                     # calm, then a burst overlapping the outage
+          pattern: piecewise
+          segments:
+            - {t_start: 0, rate: 0.5}
+            - {t_start: 85, rate: 3.0}
+            - {t_start: 125, rate: 0.5}
+        cpu_demand: 1.5
+        data_size: 200000
+        result_size: 20000
+        deadline_offset: 10.0
+
+  - id: node_2
+    type: source
+    cpu_capacity: 1.0
+    memory_capacity: 8.0
+    tier: edge
+    queue_limit: 6
+    source:
+      generator:
+        type: poisson
+        rate: 0.4
+        cpu_demand: 2.0
+        data_size: 100000
+        result_size: 10000
+        deadline_offset: 15.0
+
+  - id: node_h
+    type: helper
+    cpu_capacity: 4.0
+    cpu_speed: 2.0
+    memory_capacity: 16.0
+    tier: edge
+
+logging:
+  output_dir: logs/instability_run01
+  log_state_every: 1.0

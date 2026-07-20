@@ -101,13 +101,16 @@ class HeartbeatObservability(ObservabilityModel):
         eps = 1e-12
         for rt in self._runtimes:
             node_id = rt.node_id
-            # Capture any reports whose scheduled moment has passed.
+            # Capture any reports whose scheduled moment has passed. A
+            # failed node sends nothing — its heartbeat simply goes silent
+            # and the controller's belief freezes at the last report.
             while self._next_report[node_id] <= t + eps:
                 scheduled = self._next_report[node_id]
-                snapshot = rt.snapshot(scheduled)  # current state, scheduled label
-                self._pending[node_id].append(
-                    (scheduled + self.report_delay, snapshot)
-                )
+                if rt.failure_state != "failed":
+                    snapshot = rt.snapshot(scheduled)  # current state, scheduled label
+                    self._pending[node_id].append(
+                        (scheduled + self.report_delay, snapshot)
+                    )
                 self._next_report[node_id] = scheduled + self.interval
             # Promote reports that have arrived at the controller.
             arrived = [p for p in self._pending[node_id] if p[0] <= t + eps]

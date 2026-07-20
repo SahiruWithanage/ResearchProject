@@ -74,7 +74,7 @@ class Controller:
         eligible: list[EdgeNode] = [
             rt.node
             for rt in self.managed_nodes
-            if rt.node.is_suitable(task) and rt.has_room()
+            if rt.is_available() and rt.node.is_suitable(task) and rt.has_room()
         ]
 
         if not eligible:
@@ -168,6 +168,17 @@ class Controller:
             )
         outcome.return_end = return_time
         outcome.deadline_met = return_time <= task.deadline
+
+    def record_loss(self, task: Task) -> None:
+        """Mark an already-allocated task as lost (node crash, dead arrival)."""
+        outcome = self.outcomes.get(task.task_id)
+        if outcome is None:
+            raise KeyError(
+                f"task {task.task_id!r} is not tracked by controller "
+                f"{self.id!r}"
+            )
+        outcome.task_lost = True
+        outcome.deadline_met = False
 
     def has_task(self, task_id: str) -> bool:
         return task_id in self.outcomes

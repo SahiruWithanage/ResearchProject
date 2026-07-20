@@ -45,6 +45,10 @@ class NodeRuntime:
             )
         self._active: list[_ActiveTask] = []
         self._queue: list[Task] = []
+        # Stage 8 instability state, driven by scenarios.
+        self.failure_state: str = "normal"
+        self.reliability_score: float = 1.0
+        self._recovery_speed_factor: float = 1.0
 
     @property
     def node_id(self) -> str:
@@ -64,22 +68,54 @@ class NodeRuntime:
         limit = self.node.queue_limit
         return limit is None or self.queue_length < limit
 
+    def is_available(self) -> bool:
+        """False while failed: not a valid execution candidate."""
+        return self.failure_state != "failed"
+
+    def fail(self) -> list[Task]:
+        """Crash the node. Evicts and returns every held task (they are
+        lost — a crashed machine doesn't keep its queue)."""
+        self.failure_state = "failed"
+        evicted = [entry.task for entry in self._active] + list(self._queue)
+        self._active.clear()
+        self._queue.clear()
+        return evicted
+
+    def begin_recovery(self, speed_factor: float = 1.0) -> None:
+        """Come back up, optionally at reduced speed while recovering."""
+        if speed_factor <= 0:
+            raise ValueError(f"speed_factor must be > 0, got {speed_factor}")
+        self.failure_state = "recovering" if speed_factor < 1.0 else "normal"
+        self._recovery_speed_factor = float(speed_factor)
+
+    def restore(self) -> None:
+        """Fully healthy again."""
+        self.failure_state = "normal"
+        self._recovery_speed_factor = 1.0
+
+    @property
+    def effective_speed(self) -> float:
+        return self.speed * self._recovery_speed_factor
+
     def enqueue(self, task: Task) -> None:
         self._queue.append(task)
         self._fill_active_slots()
 
     def advance(self, dt: float, t_start: float) -> list[tuple[Task, float]]:
-        """Drain `dt * speed` from each active task. Return tasks that finished this tick."""
+        """Drain `dt * effective_speed` from each active task. Return finishers."""
         if dt <= 0:
             raise ValueError(f"dt must be > 0, got {dt}")
+        if self.failure_state == "failed":
+            return []  # a crashed node does no work
 
-        drained = dt * self.speed
+        speed = self.effective_speed
+        drained = dt * speed
         completed: list[tuple[Task, float]] = []
         still_active: list[_ActiveTask] = []
         for entry in self._active:
             if entry.remaining_work <= drained:
                 # Sub-tick-accurate completion time so deadline checks aren't lossy.
-                completion_time = t_start + entry.remaining_work / self.speed
+                completion_time = t_start + entry.remaining_work / speed
                 completed.append((entry.task, completion_time))
             else:
                 entry.remaining_work -= drained
@@ -109,6 +145,8 @@ class NodeRuntime:
             active_tasks=len(self._active),
             cpu_utilisation=cpu_util,
             memory_utilisation=memory_util,
+            reliability_score=self.reliability_score,
+            failure_state=self.failure_state,
         )
 
     def _memory_used(self) -> float:

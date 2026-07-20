@@ -32,6 +32,8 @@ _STATE_FIELDS: tuple[str, ...] = (
     "active_tasks",
     "cpu_utilisation",
     "memory_utilisation",
+    "reliability_score",
+    "failure_state",
 )
 
 
@@ -107,6 +109,8 @@ class RunLogger:
                         s.active_tasks,
                         _fmt_float(s.cpu_utilisation),
                         _fmt_float(s.memory_utilisation),
+                        _fmt_float(s.reliability_score),
+                        s.failure_state,
                     ]
                 )
 

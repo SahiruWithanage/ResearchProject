@@ -77,6 +77,13 @@ class NetworkConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ScenarioConfig:
+    """One instability scenario from the top-level ``scenarios`` list."""
+    type: str
+    params: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class LoggingConfig:
     """Where to write run outputs and how often to snapshot node state."""
     output_dir: str
@@ -93,3 +100,4 @@ class SimulationConfig:
     nodes: list[NodeConfig]
     network: NetworkConfig
     logging: LoggingConfig
+    scenarios: list[ScenarioConfig] = field(default_factory=list)

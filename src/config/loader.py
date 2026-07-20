@@ -45,6 +45,7 @@ from .schema import (
     NetworkConfig,
     NodeConfig,
     ObservabilityConfig,
+    ScenarioConfig,
     SimulationConfig,
     SourceConfig,
 )
@@ -103,6 +104,7 @@ def parse_config(raw: Mapping[str, Any]) -> SimulationConfig:
 
     network_cfg = _parse_network(raw.get("network"))
     logging_cfg = _parse_logging(_require_mapping(raw, "logging"))
+    scenario_cfgs = _parse_scenarios(raw.get("scenarios"), {n.id for n in nodes})
 
     _check_cross_references(controllers, nodes)
 
@@ -114,6 +116,7 @@ def parse_config(raw: Mapping[str, Any]) -> SimulationConfig:
         nodes=nodes,
         network=network_cfg,
         logging=logging_cfg,
+        scenarios=scenario_cfgs,
     )
 
 
@@ -404,6 +407,31 @@ def _parse_network(raw: Any) -> NetworkConfig:
         links=links,
         params=dict(params_raw),
     )
+
+
+def _parse_scenarios(
+    raw: Any, node_ids: set[str]
+) -> list[ScenarioConfig]:
+    """Parse the optional top-level `scenarios` list."""
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ConfigError(f"scenarios must be a list, got {type(raw).__name__}")
+    parsed: list[ScenarioConfig] = []
+    for i, entry in enumerate(raw):
+        where = f"scenarios[{i}]"
+        if not isinstance(entry, Mapping):
+            raise ConfigError(f"{where} must be a mapping, got {type(entry).__name__}")
+        sc_type = _require_str(entry, "type", where)
+        params = {k: v for k, v in entry.items() if k != "type"}
+        target = params.get("node")
+        if target is not None and target not in node_ids:
+            raise ConfigError(
+                f"{where} targets unknown node {target!r}. "
+                f"known nodes: {sorted(node_ids)}"
+            )
+        parsed.append(ScenarioConfig(type=sc_type, params=params))
+    return parsed
 
 
 def _parse_logging(raw: Mapping[str, Any]) -> LoggingConfig:
