@@ -19,7 +19,7 @@ The thesis follows a staged plan. The repo updates as I work through each stage.
 - [x] **Delay / transmission substage** - fluid link profiles (LAN/Wi-Fi/5G) with jitter on by default, uplink *and* downlink (results travel home; deadlines count the return trip via `result_size`), CPU/transmission split, and a `varying_fluid_link` model whose link quality drifts over time.
 - [x] **Task realism substage** - per-task property distributions (`{dist: uniform|normal|lognormal|exponential, ...}`), weighted task-type mixes (`task_mix`), and time-varying arrival rates (sinusoidal load curves, piecewise bursts).
 - [x] **Control-plane substage** - the controller no longer has to be all-knowing: `observability: {type: heartbeat, interval, report_delay}` makes it decide from stale node reports, and `scheduling_delay` makes each decision cost time.
-- [x] **Stage 5 (partial)** - `load_aware` and `latency_first` baselines (weighted-score + energy deferred).
+- [x] **Stage 5** - deterministic baselines: `load_aware`, `latency_first`, and `weighted_score` (tunable `w_delay`/`w_load`/`w_compute`/`w_energy` weights over expected delay, queue wait, service time, and energy cost).
 - [ ] **Stage 6** - find the best-possible allocation as a reference point (using MILP).
 - [ ] **Stage 7** - real workload datasets / traces instead of synthetic arrivals.
 - [ ] **Stage 8** - instability scenarios (failures, slowdowns, recovery).
