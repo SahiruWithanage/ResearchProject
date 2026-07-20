@@ -124,6 +124,80 @@ class ExponentialDistribution(Distribution):
         return float(rng.exponential(self.mean))
 
 
+@distributions.register("empirical")
+class EmpiricalDistribution(Distribution):
+    """Sample uniformly from observed values (trace-informed inputs).
+
+    Give either ``values`` inline or ``file`` + ``column`` pointing at a
+    CSV of real measurements. ``scale`` converts units on load (e.g.
+    milliseconds -> work units).
+    """
+
+    def __init__(
+        self,
+        *,
+        values: list[float] | None = None,
+        file: str | None = None,
+        column: str | None = None,
+        scale: float = 1.0,
+    ) -> None:
+        if (values is None) == (file is None):
+            raise ValueError("empirical needs exactly one of 'values' or 'file'")
+        if file is not None:
+            if column is None:
+                raise ValueError("empirical with 'file' also needs 'column'")
+            values = _load_csv_column(file, column)
+        if not values:
+            raise ValueError("empirical needs at least one value")
+        self._values = np.asarray([float(v) * scale for v in values])
+
+    def sample(self, rng: np.random.Generator | None) -> float:
+        return float(self._values[rng.integers(len(self._values))])
+
+
+@distributions.register("percentile")
+class PercentileDistribution(Distribution):
+    """Sample from a distribution described by its percentiles.
+
+    ``points`` is a list of ``[percentile, value]`` pairs (percentile in
+    [0, 100], ascending). Sampling draws u ~ U(0, 100) and inverts the
+    piecewise-linear CDF. This matches how the Azure Functions 2019
+    dataset publishes per-function durations and memory. ``scale``
+    converts units (e.g. 0.001 for milliseconds -> seconds).
+    """
+
+    def __init__(self, *, points: list[list[float]], scale: float = 1.0) -> None:
+        if not isinstance(points, list) or len(points) < 2:
+            raise ValueError("percentile needs at least two [pct, value] points")
+        pct = [float(p[0]) for p in points]
+        val = [float(p[1]) * scale for p in points]
+        if pct != sorted(pct) or pct[0] < 0 or pct[-1] > 100:
+            raise ValueError(
+                "percentile points must be ascending with pct in [0, 100]"
+            )
+        if val != sorted(val):
+            raise ValueError("percentile values must be non-decreasing")
+        self._pct = np.asarray(pct)
+        self._val = np.asarray(val)
+
+    def sample(self, rng: np.random.Generator | None) -> float:
+        u = float(rng.uniform(self._pct[0], self._pct[-1]))
+        return float(np.interp(u, self._pct, self._val))
+
+
+def _load_csv_column(path: str, column: str) -> list[float]:
+    import csv
+
+    with open(path, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames is None or column not in reader.fieldnames:
+            raise ValueError(
+                f"column {column!r} not found in {path!r} "
+                f"(has: {reader.fieldnames})"
+            )
+        return [float(row[column]) for row in reader if row[column] != ""]
+
+
 def build_distribution(spec: Any, where: str = "value") -> Distribution:
     """Turn a YAML value into a Distribution.
 

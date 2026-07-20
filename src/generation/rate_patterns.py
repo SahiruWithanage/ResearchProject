@@ -130,6 +130,66 @@ class PiecewiseRate(RatePattern):
         return max(rate for _, rate in self.segments)
 
 
+@rate_patterns.register("trace")
+class TraceRate(RatePattern):
+    """Step-function arrival rate replayed from a measured trace.
+
+    The CSV needs columns ``t`` (seconds, ascending from 0) and ``rate``
+    (tasks per second). The rate holds until the next sample. After the
+    last sample the rate is 0 unless ``loop`` is true, in which case the
+    trace repeats. ``rate_scale`` / ``time_scale`` rescale intensity and
+    playback speed (time_scale 2.0 = play twice as slow).
+    """
+
+    def __init__(
+        self,
+        *,
+        file: str,
+        rate_scale: float = 1.0,
+        time_scale: float = 1.0,
+        loop: bool = False,
+    ) -> None:
+        if rate_scale < 0:
+            raise ValueError(f"rate_scale must be >= 0, got {rate_scale}")
+        if time_scale <= 0:
+            raise ValueError(f"time_scale must be > 0, got {time_scale}")
+        import csv
+
+        times: list[float] = []
+        rates: list[float] = []
+        with open(file, newline="", encoding="utf-8") as f:
+            for row in csv.DictReader(f):
+                times.append(float(row["t"]) * time_scale)
+                rates.append(float(row["rate"]) * rate_scale)
+        if not times:
+            raise ValueError(f"trace rate file {file!r} has no rows")
+        if times != sorted(times):
+            raise ValueError(f"trace rate file {file!r} must be sorted by t")
+        if any(r < 0 for r in rates):
+            raise ValueError(f"trace rate file {file!r} has negative rates")
+        self._times = times
+        self._rates = rates
+        # One sample-interval past the last sample marks the trace's end.
+        step = times[-1] - times[-2] if len(times) > 1 else 1.0
+        self._duration = times[-1] + max(step, 1e-9)
+        self.loop = bool(loop)
+
+    def rate(self, t: float) -> float:
+        import bisect
+
+        if self.loop:
+            t = t % self._duration
+        elif t >= self._duration or t < self._times[0]:
+            return 0.0
+        idx = bisect.bisect_right(self._times, t) - 1
+        if idx < 0:
+            return 0.0
+        return self._rates[idx]
+
+    def max_rate(self) -> float:
+        return max(self._rates)
+
+
 def build_rate_pattern(spec: Any, where: str = "rate") -> RatePattern:
     """Number -> ConstantRate; mapping with 'pattern' -> registered class."""
     if isinstance(spec, bool):

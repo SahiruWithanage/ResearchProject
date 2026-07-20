@@ -21,7 +21,7 @@ The thesis follows a staged plan. The repo updates as I work through each stage.
 - [x] **Control-plane substage** - the controller no longer has to be all-knowing: `observability: {type: heartbeat, interval, report_delay}` makes it decide from stale node reports, and `scheduling_delay` makes each decision cost time.
 - [x] **Stage 5** - deterministic baselines: `load_aware`, `latency_first`, and `weighted_score` (tunable `w_delay`/`w_load`/`w_compute`/`w_energy` weights over expected delay, queue wait, service time, and energy cost).
 - [ ] **Stage 6** - find the best-possible allocation as a reference point (using MILP).
-- [ ] **Stage 7** - real workload datasets / traces instead of synthetic arrivals.
+- [x] **Stage 7** - trace-informed inputs: real workload rhythms + duration/memory percentiles (Azure Functions 2019) and real measured 5G link bandwidth (UCC Ireland) flow in through `trace`/`empirical`/`percentile`/`trace_fluid_link` plug-ins. Converters in `tools/`; example: `configs/trace_driven.yaml` (needs the local datasets, see comments in the file).
 - [x] **Stage 8** - instability scenarios: a `scenarios:` list scripts node failures (tasks lost, heartbeats go silent, recovery at reduced speed) and reliability decay; plus the `reliability_threshold` allocator. All five stability-risk factors from the methodology are now available. Example: `configs/instability.yaml`.
 - [ ] **Stage 9** - the Bayesian allocator (the actual research contribution).
 - [ ] **Stage 10** - comparative experiments and analysis.

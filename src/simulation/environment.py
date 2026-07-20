@@ -113,7 +113,7 @@ class Environment:
         net_cfg = config.network
         net_cls = network_models.get(net_cfg.type)
         kwargs = dict(net_cfg.params)
-        if net_cfg.type in ("fluid_link", "varying_fluid_link"):
+        if net_cfg.type in ("fluid_link", "varying_fluid_link", "trace_fluid_link"):
             kwargs.update(
                 default_profile=net_cfg.default_profile,
                 profiles=net_cfg.profiles,

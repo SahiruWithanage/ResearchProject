@@ -1,0 +1,93 @@
+# Stage 7 trace-driven example: REAL workload + REAL network measurements.
+#
+# Requires the processed traces (local-only, not in git):
+#   python tools/prepare_azure_functions.py resources/datasets/azure_functions \
+#          resources/datasets/processed/azure --top 3 --day 1 \
+#          --min-invocations 20000 --max-invocations 120000
+#   python tools/prepare_ucc_5g.py \
+#          "resources/datasets/ucc_5g/5G-production-dataset/Download/Static/B_2019.12.16_13.40.04.csv" \
+#          resources/datasets/processed/5g_static_download.csv
+#
+# Real vs synthetic (document this split in the thesis):
+#   REAL: arrival rhythms (Azure Functions 2019, per-minute), cpu_demand
+#         (duration percentiles, 1 unit = 1 s measured), memory_demand
+#         (allocated-MB percentiles, 1 unit = 1 GB), link bandwidth over
+#         time (UCC Ireland 5G measurements, 1-second samples).
+#   SYNTHETIC: data_size, result_size, deadlines, node specs, topology.
+
+seed: 42
+sim_duration: 3600.0   # first hour of the trace day
+dt: 0.01
+
+network:
+  type: trace_fluid_link
+  default_profile: wifi
+  links:
+    - from: node_storage
+      to: node_server
+      profile: 5g        # base latency/jitter from the 5g profile...
+  params:
+    traces:              # ...bandwidth replayed from real 5G measurements
+      - from: node_storage
+        to: node_server
+        file: resources/datasets/processed/5g_static_download.csv
+        loop: true
+        min_bandwidth_bps: 10000
+
+controllers:
+  - id: ctrl_main
+    allocator:
+      type: weighted_score
+    observability:
+      type: heartbeat
+      interval: 1.0
+      report_delay: 0.02
+    scheduling_delay: 0.02
+    manages: [node_storage, node_queue, node_server]
+    parent: null
+
+nodes:
+  # Azure function 1 (storage trigger): heavy tasks, median ~5.9 s compute.
+  - id: node_storage
+    type: source
+    cpu_capacity: 2.0
+    memory_capacity: 8.0
+    tier: edge
+    source:
+      generator:
+        type: poisson
+        rate: {pattern: trace, file: resources/datasets/processed/azure/rate_1.csv}
+        task_type: storage
+        cpu_demand: {dist: percentile, points: [[0, 28.0], [1, 332.0], [25, 4759.0], [50, 5874.0], [75, 7239.0], [99, 72952.0], [100, 600489.0]], scale: 0.001}
+        memory_demand: {dist: percentile, points: [[1, 118.0], [5, 172.0], [25, 197.0], [50, 224.0], [75, 253.0], [95, 302.0], [99, 369.0], [100, 927.0]], scale: 0.001}
+        data_size: 500000       # synthetic
+        result_size: 20000      # synthetic
+        deadline_offset: 30.0   # synthetic
+
+  # Azure function 2 (queue trigger): light tasks, median ~0.27 s compute.
+  - id: node_queue
+    type: source
+    cpu_capacity: 2.0
+    memory_capacity: 8.0
+    tier: edge
+    source:
+      generator:
+        type: poisson
+        rate: {pattern: trace, file: resources/datasets/processed/azure/rate_2.csv}
+        task_type: queue
+        cpu_demand: {dist: percentile, points: [[0, 170.0], [1, 208.0], [25, 242.0], [50, 274.0], [75, 375.0], [99, 3478.0], [100, 54921.0]], scale: 0.001}
+        memory_demand: {dist: percentile, points: [[1, 120.0], [5, 123.0], [25, 127.0], [50, 130.0], [75, 145.0], [95, 154.0], [99, 175.0], [100, 176.0]], scale: 0.001}
+        data_size: 100000       # synthetic
+        result_size: 10000      # synthetic
+        deadline_offset: 15.0   # synthetic
+
+  - id: node_server
+    type: helper
+    cpu_capacity: 8.0
+    cpu_speed: 2.0
+    memory_capacity: 16.0
+    tier: edge
+
+logging:
+  output_dir: logs/trace_driven_run01
+  log_state_every: 5.0
