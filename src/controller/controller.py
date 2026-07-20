@@ -116,7 +116,19 @@ class Controller:
         self.outcomes[task.task_id] = outcome
         return outcome
 
-    def record_completion(self, task: Task, completion_time: float) -> None:
+    def record_completion(
+        self,
+        task: Task,
+        completion_time: float,
+        *,
+        awaiting_return: bool = False,
+    ) -> None:
+        """Record compute completion.
+
+        With ``awaiting_return=True`` the deadline verdict is deferred until
+        :meth:`record_return` — the requester only has the result once the
+        downlink delivers it.
+        """
         outcome = self.outcomes.get(task.task_id)
         if outcome is None:
             raise KeyError(
@@ -124,7 +136,19 @@ class Controller:
                 f"{self.id!r}"
             )
         outcome.actual_completion_time = completion_time
-        outcome.deadline_met = completion_time <= task.deadline
+        if not awaiting_return:
+            outcome.deadline_met = completion_time <= task.deadline
+
+    def record_return(self, task: Task, return_time: float) -> None:
+        """Record the result arriving back at the source; judge the deadline."""
+        outcome = self.outcomes.get(task.task_id)
+        if outcome is None:
+            raise KeyError(
+                f"task {task.task_id!r} is not tracked by controller "
+                f"{self.id!r}"
+            )
+        outcome.return_end = return_time
+        outcome.deadline_met = return_time <= task.deadline
 
     def has_task(self, task_id: str) -> bool:
         return task_id in self.outcomes

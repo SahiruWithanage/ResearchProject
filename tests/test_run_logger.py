@@ -123,7 +123,7 @@ def test_allocation_log_has_explicit_header(tmp_path: Path, raw_config) -> None:
     expected = (
         "task_id,decision_time,allocator_type,selected_node,"
         "estimated_completion_time,transfer_start,transfer_end,compute_start,"
-        "actual_completion_time,deadline_met,task_lost"
+        "actual_completion_time,return_end,deadline_met,task_lost"
     )
     assert header == expected
 
@@ -201,7 +201,9 @@ def test_allocation_log_none_fields_become_empty_strings(tmp_path: Path) -> None
     logger.write_run(result, cfg, raw_config={})
     row = _read_lines(logger.allocation_log_path)[1]
     parts = row.split(",")
-    # actual_completion_time and deadline_met are empty; task_lost is False.
+    # actual_completion_time, return_end, and deadline_met are empty;
+    # task_lost is False.
+    assert parts[-4] == ""
     assert parts[-3] == ""
     assert parts[-2] == ""
     assert parts[-1] == "False"

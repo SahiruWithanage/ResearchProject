@@ -66,11 +66,14 @@ def test_load_aware_picks_shortest_queue() -> None:
 def test_latency_first_picks_lower_uplink_delay() -> None:
     from src.controller.context import DecisionContext
 
+    import numpy as np
+
     net = FluidLinkNetworkModel(
         default_profile="wifi",
         links=[
             {"from": "node_1", "to": "node_2", "profile": "wifi"},
         ],
+        rng=np.random.default_rng(7),
     )
     est = CompletionEstimator(net)
     a = LatencyFirstAllocator()

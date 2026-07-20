@@ -38,8 +38,8 @@ node_profiles:
     # no queue_limit, no accepts_task_types: unlimited backlog, all types
 
 network:
-  type: fluid_link
-  default_profile: wifi
+  type: fluid_link      # try varying_fluid_link for drifting link quality
+  default_profile: wifi # built-in profiles now carry realistic jitter
   links:
     - from: node_act
       to: node_server
@@ -65,6 +65,7 @@ nodes:
         cpu_demand: 1.0
         memory_demand: 0.5
         data_size: 200000     # bytes (200 KB sensor batch)
+        result_size: 10000    # bytes back to the source; deadline counts the return trip
         deadline_offset: 10.0
 
   - id: node_act
@@ -79,6 +80,7 @@ nodes:
         cpu_demand: 2.0
         memory_demand: 1.0
         data_size: 50000      # bytes (50 KB control payload)
+        result_size: 5000     # bytes (actuation acknowledgement)
         deadline_offset: 5.0
 
   - id: node_server

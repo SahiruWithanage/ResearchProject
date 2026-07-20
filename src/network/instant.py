@@ -28,3 +28,21 @@ class InstantNetworkModel(NetworkModel):
         t: float,
     ) -> float:
         return 0.0
+
+    def downlink_delay(
+        self,
+        executor_id: str,
+        source_id: str,
+        task: Task,
+        t: float,
+    ) -> float:
+        return 0.0
+
+    def expected_downlink_delay(
+        self,
+        executor_id: str,
+        source_id: str,
+        task: Task,
+        t: float,
+    ) -> float:
+        return 0.0

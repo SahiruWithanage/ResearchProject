@@ -16,7 +16,7 @@ The thesis follows a staged plan. The repo updates as I work through each stage.
 
 - [x] **Stages 1–2** - system model and a working simulation scaffold.
 - [x] **Stage 4** - heterogeneous nodes *(current state)*: per-node `cpu_speed`, enforced memory, `queue_limit` (overflow tasks can be lost + logged), task-type suitability, and reusable `node_profiles` in YAML. GPU processing and reliability behaviour deferred (fields exist). Example: `configs/heterogeneous.yaml`.
-- [x] **Delay / transmission substage** - fluid link profiles (LAN/Wi-Fi/5G), uplink delay, CPU/transmission split.
+- [x] **Delay / transmission substage** - fluid link profiles (LAN/Wi-Fi/5G) with jitter on by default, uplink *and* downlink (results travel home; deadlines count the return trip via `result_size`), CPU/transmission split, and a `varying_fluid_link` model whose link quality drifts over time.
 - [x] **Stage 5 (partial)** - `load_aware` and `latency_first` baselines (weighted-score + energy deferred).
 - [ ] **Stage 6** - find the best-possible allocation as a reference point (using MILP).
 - [ ] **Stage 7** - real workload datasets / traces instead of synthetic arrivals.

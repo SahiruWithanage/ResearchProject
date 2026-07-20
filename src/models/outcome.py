@@ -18,6 +18,9 @@ class AllocationOutcome:
     transfer_end: float | None = None
     compute_start: float | None = None
     actual_completion_time: float | None = None
+    # When the result payload arrived back at the source (downlink). None
+    # while in flight, and for local runs / tasks with result_size == 0.
+    return_end: float | None = None
     deadline_met: bool | None = None
     # True when no eligible node (suitable + has room) existed at decision
     # time, including the task's own source: the task was dropped.

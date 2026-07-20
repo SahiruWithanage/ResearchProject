@@ -30,6 +30,21 @@ class CompletionEstimator:
         """
         return self.network.expected_uplink_delay(source_id, target_id, task, t)
 
+    def downlink_delay(
+        self,
+        executor_id: str,
+        source_id: str,
+        task: Task,
+        t: float,
+    ) -> float:
+        """Expected (deterministic) executor -> source result-return delay.
+
+        Zero when the task has no result payload or would run at home.
+        """
+        if task.result_size <= 0.0 or executor_id == source_id:
+            return 0.0
+        return self.network.expected_downlink_delay(executor_id, source_id, task, t)
+
     def compute_duration(self, task: Task, node: EdgeNode) -> float:
         """Seconds this task computes on ``node``.
 
@@ -62,9 +77,14 @@ class CompletionEstimator:
         states: Mapping[str, NodeState],
         t: float,
     ) -> float:
-        """Estimated finish time if the task were placed on ``target`` now."""
+        """Estimated *result-in-hand* time if placed on ``target`` now.
+
+        Uplink + queue wait + compute + (if a result must travel back)
+        the expected downlink — matching how ``deadline_met`` is judged.
+        """
         state = states[target.node_id]
         transfer = self.uplink_delay(source_id, target.node_id, task, t)
         wait = self.queue_wait_proxy(state, task, target)
         compute = self.compute_duration(task, target)
-        return t + transfer + wait + compute
+        result_return = self.downlink_delay(target.node_id, source_id, task, t)
+        return t + transfer + wait + compute + result_return

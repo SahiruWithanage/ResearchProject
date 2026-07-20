@@ -31,6 +31,7 @@ class PoissonGenerator(TaskGenerator):
         deadline_offset: float = 5.0,
         priority: int = 1,
         gpu_demand: float = 0.0,
+        result_size: float = 0.0,
     ) -> None:
         if rng is None:
             raise ValueError(
@@ -52,6 +53,7 @@ class PoissonGenerator(TaskGenerator):
         self.deadline_offset = float(deadline_offset)
         self.priority = int(priority)
         self.gpu_demand = float(gpu_demand)
+        self.result_size = float(result_size)
 
         self._counter = 0
 
@@ -87,4 +89,5 @@ class PoissonGenerator(TaskGenerator):
             priority=self.priority,
             source_node_id=self.source_node_id,
             gpu_demand=self.gpu_demand,
+            result_size=self.result_size,
         )

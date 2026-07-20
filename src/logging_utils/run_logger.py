@@ -20,6 +20,7 @@ _ALLOC_FIELDS: tuple[str, ...] = (
     "transfer_end",
     "compute_start",
     "actual_completion_time",
+    "return_end",
     "deadline_met",
     "task_lost",
 )
@@ -86,6 +87,7 @@ class RunLogger:
                         _fmt_float(o.transfer_end),
                         _fmt_float(o.compute_start),
                         _fmt_float(o.actual_completion_time),
+                        _fmt_float(o.return_end),
                         _fmt_bool(o.deadline_met),
                         _fmt_bool(o.task_lost),
                     ]

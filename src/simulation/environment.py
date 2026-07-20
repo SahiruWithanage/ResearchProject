@@ -37,7 +37,8 @@ class Environment:
     def __init__(self, config: SimulationConfig) -> None:
         self.config = config
         self._clock = Clock(dt=config.dt)
-        self._transit = TransitQueue()
+        self._transit = TransitQueue()  # uplink: task payloads to executors
+        self._return_transit = TransitQueue()  # downlink: results going home
 
         # One SeedSequence feeds every random stream. Sources take children
         # 0..n-1 (stable spawn keys), the network takes child n; spawning from
@@ -100,12 +101,18 @@ class Environment:
         net_cfg = config.network
         net_cls = network_models.get(net_cfg.type)
         kwargs = dict(net_cfg.params)
-        if net_cfg.type == "fluid_link":
+        if net_cfg.type in ("fluid_link", "varying_fluid_link"):
             kwargs.update(
                 default_profile=net_cfg.default_profile,
                 profiles=net_cfg.profiles,
                 links=net_cfg.links,
                 rng=np.random.default_rng(network_seed),
+            )
+        if net_cfg.type == "varying_fluid_link":
+            # Stable integer entropy for the counter-based quality factors;
+            # generate_state is a pure function (consumes nothing).
+            kwargs.setdefault(
+                "variation_entropy", int(network_seed.generate_state(2)[1])
             )
         return net_cls(**kwargs)
 
@@ -122,10 +129,10 @@ class Environment:
             for runtime in self.runtimes.values():
                 completed = runtime.advance(actual_dt, t_start)
                 for finished_task, completion_time in completed:
-                    owner = self._controller_for_task(finished_task)
-                    owner.record_completion(finished_task, completion_time)
+                    self._finish_compute(runtime.node_id, finished_task, completion_time)
 
             self._deliver_transit(t_end)
+            self._deliver_returns(t_end)
 
             new_tasks: list[Task] = []
             for gen in self.generators.values():
@@ -173,12 +180,38 @@ class Environment:
         outcome.transfer_end = arrive_at
         self._transit.schedule(task, target, arrive_at)
 
+    def _finish_compute(
+        self, executor_id: str, task: Task, completion_time: float
+    ) -> None:
+        """Record a compute completion; start the result's trip home if any.
+
+        The deadline is judged at compute completion unless a result payload
+        must travel back (remote executor and ``result_size`` > 0) — then
+        judgement waits for the downlink arrival (:meth:`_deliver_returns`).
+        """
+        owner = self._controller_for_task(task)
+        source = task.source_node_id
+        needs_return = (
+            task.result_size > 0.0 and source is not None and source != executor_id
+        )
+        owner.record_completion(task, completion_time, awaiting_return=needs_return)
+        if needs_return:
+            delay = self._network.downlink_delay(
+                executor_id, source, task, completion_time
+            )
+            self._return_transit.schedule(task, source, completion_time + delay)
+
     def _deliver_transit(self, t_end: float) -> None:
         for entry in self._transit.deliver_due(t_end):
             self.runtimes[entry.target_node_id].enqueue(entry.task)
             ctrl = self._controller_for_task(entry.task)
             outcome = ctrl.outcomes[entry.task.task_id]
             outcome.compute_start = entry.arrive_at
+
+    def _deliver_returns(self, t_end: float) -> None:
+        for entry in self._return_transit.deliver_due(t_end):
+            ctrl = self._controller_for_task(entry.task)
+            ctrl.record_return(entry.task, entry.arrive_at)
 
     def _controller_for_task(self, task: Task) -> Controller:
         source = task.source_node_id

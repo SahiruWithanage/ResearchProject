@@ -252,6 +252,79 @@ def test_different_seed_produces_different_outcomes(poisson_raw):
     assert a_ids != b_ids
 
 
+def _downlink_raw(result_size: float) -> dict[str, Any]:
+    # The source only accepts a type we never emit, so the task MUST run on
+    # the helper; the result (if any) then has to travel back over wifi.
+    return {
+        "seed": 5,
+        "sim_duration": 5.0,
+        "dt": 0.01,
+        "network": {
+            "type": "fluid_link",
+            "default_profile": "wifi",
+            "profiles": {"wifi": {"jitter_s": 0.0}},
+        },
+        "controllers": [
+            {
+                "id": "c",
+                "allocator": {"type": "load_aware"},
+                "manages": ["node_1", "node_h"],
+                "parent": None,
+            }
+        ],
+        "nodes": [
+            {
+                "id": "node_1",
+                "type": "source",
+                "cpu_capacity": 1.0,
+                "memory_capacity": 8.0,
+                "tier": "edge",
+                "accepts_task_types": ["never_emitted"],
+                "source": {
+                    "generator": {
+                        "type": "fixed_interval",
+                        "interval": 100.0,
+                        "cpu_demand": 1.0,
+                        "data_size": 0.0,
+                        "result_size": result_size,
+                        "deadline_offset": 1.2,
+                    }
+                },
+            },
+            {
+                "id": "node_h",
+                "type": "helper",
+                "cpu_capacity": 1.0,
+                "memory_capacity": 8.0,
+                "tier": "edge",
+            },
+        ],
+        "logging": {"output_dir": "logs/x", "log_state_every": 1.0},
+    }
+
+
+def test_deadline_judged_on_result_return_for_remote_tasks():
+    # result 2.5 MB over 50 Mbit/s wifi -> ~0.41 s return trip. Compute
+    # finishes inside the 1.2 s deadline; the result arrives after it.
+    result = Environment(parse_config(_downlink_raw(2_500_000.0))).run()
+    assert len(result.outcomes) == 1
+    o = result.outcomes[0]
+    assert o.selected_node == "node_h"
+    assert o.actual_completion_time is not None
+    assert o.return_end is not None
+    assert o.return_end == pytest.approx(o.actual_completion_time + 0.41, abs=0.05)
+    assert o.deadline_met is False  # result got home too late
+
+
+def test_no_result_payload_keeps_deadline_at_compute_completion():
+    result = Environment(parse_config(_downlink_raw(0.0))).run()
+    assert len(result.outcomes) == 1
+    o = result.outcomes[0]
+    assert o.selected_node == "node_h"
+    assert o.return_end is None  # nothing to send back
+    assert o.deadline_met is True
+
+
 def test_network_rng_stream_is_distinct_from_every_generator_stream(poisson_raw):
     # Regression: the network seed used to collide with the first source's
     # seed (both were spawn child 0 of a fresh SeedSequence), which made the

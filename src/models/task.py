@@ -22,6 +22,10 @@ class Task:
         gpu_demand: GPU work units required. 0.0 = pure-CPU task. Nodes
             without GPU capacity are unsuitable for tasks that demand GPU;
             GPU *processing* is not modelled yet (Stage 4 defers it).
+        result_size: size of the result payload in bytes. When > 0 and the
+            task ran on a node other than its source, the result travels
+            back (downlink) and the deadline is judged on *arrival back*,
+            not on compute completion. 0.0 = nothing to send back.
     """
 
     task_id: str
@@ -35,3 +39,4 @@ class Task:
     source_node_id: str | None = None
     source_timestamp: float | None = None
     gpu_demand: float = 0.0
+    result_size: float = 0.0
