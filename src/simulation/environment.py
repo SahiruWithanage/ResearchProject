@@ -12,6 +12,7 @@ from src.config import (
     allocators,
     generators,
     network_models,
+    observability_models,
 )
 from src.controller.controller import Controller
 from src.generation.base import TaskGenerator
@@ -83,6 +84,8 @@ class Environment:
         for ctrl_cfg in config.controllers:
             alloc_cls = allocators.get(ctrl_cfg.allocator.type)
             alloc = alloc_cls(**ctrl_cfg.allocator.params)
+            obs_cls = observability_models.get(ctrl_cfg.observability.type)
+            observability = obs_cls(**ctrl_cfg.observability.params)
             managed_runtimes = [self.runtimes[node_id] for node_id in ctrl_cfg.manages]
             ctrl = Controller(
                 id=ctrl_cfg.id,
@@ -90,6 +93,8 @@ class Environment:
                 allocator_type=ctrl_cfg.allocator.type,
                 managed_nodes=managed_runtimes,
                 parent_id=ctrl_cfg.parent,
+                observability=observability,
+                scheduling_delay=ctrl_cfg.scheduling_delay,
             )
             self.controllers[ctrl.id] = ctrl
             for runtime in managed_runtimes:
@@ -134,6 +139,10 @@ class Environment:
             self._deliver_transit(t_end)
             self._deliver_returns(t_end)
 
+            # Heartbeats fire while the world is current, before decisions.
+            for ctrl in self.controllers.values():
+                ctrl.observability.refresh(t_end)
+
             new_tasks: list[Task] = []
             for gen in self.generators.values():
                 new_tasks.extend(gen.emit(t_start, t_end))
@@ -167,16 +176,20 @@ class Environment:
 
         target = outcome.selected_node
         source = task.source_node_id
-        t = outcome.decision_time
+        # transfer_start already includes the controller's scheduling delay.
+        start = outcome.transfer_start
 
         if source is None or source == target:
-            outcome.transfer_end = t
-            outcome.compute_start = t
-            self.runtimes[target].enqueue(task)
+            outcome.transfer_end = start
+            outcome.compute_start = start
+            if start <= outcome.decision_time:
+                self.runtimes[target].enqueue(task)  # no delay: enqueue now
+            else:
+                self._transit.schedule(task, target, start)
             return
 
-        delay = self._network.uplink_delay(source, target, task, t)
-        arrive_at = t + delay
+        delay = self._network.uplink_delay(source, target, task, start)
+        arrive_at = start + delay
         outcome.transfer_end = arrive_at
         self._transit.schedule(task, target, arrive_at)
 

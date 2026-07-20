@@ -48,12 +48,21 @@ class AllocatorConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ObservabilityConfig:
+    """How the controller learns node state. Default: perfect live truth."""
+    type: str = "perfect"
+    params: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class ControllerConfig:
     """Static config for one controller from YAML. ``parent`` enables hierarchies later."""
     id: str
     allocator: AllocatorConfig
     manages: list[str]
     parent: str | None = None  # parent controller id, or None for a root
+    observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
+    scheduling_delay: float = 0.0  # seconds between decision and dispatch
 
 
 @dataclass(frozen=True, slots=True)

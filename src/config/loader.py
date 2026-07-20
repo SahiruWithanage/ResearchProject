@@ -44,6 +44,7 @@ from .schema import (
     LoggingConfig,
     NetworkConfig,
     NodeConfig,
+    ObservabilityConfig,
     SimulationConfig,
     SourceConfig,
 )
@@ -323,11 +324,32 @@ def _parse_controller(raw: Any, idx: int) -> ControllerConfig:
             f"{type(parent_raw).__name__}: {parent_raw!r}"
         )
 
+    obs_raw = raw.get("observability")
+    if obs_raw is None:
+        observability = ObservabilityConfig()
+    else:
+        if not isinstance(obs_raw, Mapping):
+            raise ConfigError(
+                f"{where}.observability must be a mapping, got "
+                f"{type(obs_raw).__name__}"
+            )
+        obs_type = _require_str(obs_raw, "type", f"{where}.observability")
+        obs_params = {k: v for k, v in obs_raw.items() if k != "type"}
+        observability = ObservabilityConfig(type=obs_type, params=obs_params)
+
+    sched_raw = raw.get("scheduling_delay", 0.0)
+    if not _is_number(sched_raw) or float(sched_raw) < 0:
+        raise ConfigError(
+            f"{where}.scheduling_delay must be a number >= 0, got {sched_raw!r}"
+        )
+
     return ControllerConfig(
         id=ctrl_id,
         allocator=allocator,
         manages=list(manages),
         parent=parent_raw,
+        observability=observability,
+        scheduling_delay=float(sched_raw),
     )
 
 

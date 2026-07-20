@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from src.controller.allocators.base import Allocator
 from src.controller.context import DecisionContext
+from src.controller.observability import ObservabilityModel, PerfectObservability
 from src.models import AllocationOutcome, EdgeNode, Task
 from src.simulation.estimates import CompletionEstimator
 
@@ -28,14 +29,23 @@ class Controller:
         allocator_type: str,
         managed_nodes: list[NodeRuntime],
         parent_id: str | None = None,
+        observability: ObservabilityModel | None = None,
+        scheduling_delay: float = 0.0,
     ) -> None:
         if not managed_nodes:
             raise ValueError(f"controller {id!r} has no managed nodes")
+        if scheduling_delay < 0:
+            raise ValueError(
+                f"scheduling_delay must be >= 0, got {scheduling_delay}"
+            )
         self.id = id
         self.allocator = allocator
         self.allocator_type = allocator_type
         self.managed_nodes = managed_nodes
         self.parent_id = parent_id
+        self.observability = observability or PerfectObservability()
+        self.observability.attach(managed_nodes)
+        self.scheduling_delay = float(scheduling_delay)
         self._runtime_by_node: dict[str, NodeRuntime] = {
             rt.node_id: rt for rt in managed_nodes
         }
@@ -55,8 +65,12 @@ class Controller:
         own source — the task is recorded as lost. A task is therefore
         never dropped while its source still has room, because a
         with-room source is itself an eligible candidate.
+
+        The *states* the allocator scores with come from the observability
+        model (possibly stale heartbeat reports); eligibility (limits,
+        suitability) stays physical — the node itself knows if it's full.
         """
-        states = {rt.node_id: rt.snapshot(t) for rt in self.managed_nodes}
+        states = self.observability.observe(t)
         eligible: list[EdgeNode] = [
             rt.node
             for rt in self.managed_nodes
@@ -98,12 +112,15 @@ class Controller:
             )
 
         source_id = task.source_node_id or chosen_id
-        eta = estimator.estimated_completion(
-            source_id,
-            self._runtime_by_node[chosen_id].node,
-            task,
-            states,
-            t,
+        eta = (
+            estimator.estimated_completion(
+                source_id,
+                self._runtime_by_node[chosen_id].node,
+                task,
+                states,
+                t,
+            )
+            + self.scheduling_delay
         )
         outcome = AllocationOutcome(
             task_id=task.task_id,
@@ -111,7 +128,9 @@ class Controller:
             allocator_type=self.allocator_type,
             selected_node=chosen_id,
             estimated_completion_time=eta,
-            transfer_start=t,
+            # The payload leaves once the scheduling/orchestration overhead
+            # has elapsed; the Environment dispatches from this instant.
+            transfer_start=t + self.scheduling_delay,
         )
         self.outcomes[task.task_id] = outcome
         return outcome

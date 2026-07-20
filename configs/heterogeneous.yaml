@@ -49,6 +49,14 @@ controllers:
   - id: ctrl_main
     allocator:
       type: load_aware
+    # Control-plane realism: the controller does NOT see live node state.
+    # Nodes report once per second, reports take 20 ms to arrive, and each
+    # decision costs 20 ms of orchestration before dispatch.
+    observability:
+      type: heartbeat     # `perfect` restores the all-knowing controller
+      interval: 1.0
+      report_delay: 0.02
+    scheduling_delay: 0.02
     manages: [node_sense, node_act, node_server]
     parent: null
 

@@ -1,6 +1,14 @@
 """Configuration: YAML loader, validation, and plugin registries."""
 
-from .factory import Registry, allocators, generators, network_models
+from .factory import (
+    Registry,
+    allocators,
+    distributions,
+    generators,
+    network_models,
+    observability_models,
+    rate_patterns,
+)
 from .loader import ConfigError, load_config, parse_config
 from .schema import (
     AllocatorConfig,
@@ -9,6 +17,7 @@ from .schema import (
     LoggingConfig,
     NetworkConfig,
     NodeConfig,
+    ObservabilityConfig,
     SimulationConfig,
     SourceConfig,
 )
@@ -20,6 +29,7 @@ __all__ = [
     "LoggingConfig",
     "NetworkConfig",
     "NodeConfig",
+    "ObservabilityConfig",
     "SimulationConfig",
     "SourceConfig",
     "ConfigError",
@@ -27,6 +37,9 @@ __all__ = [
     "parse_config",
     "Registry",
     "allocators",
+    "distributions",
     "generators",
     "network_models",
+    "observability_models",
+    "rate_patterns",
 ]

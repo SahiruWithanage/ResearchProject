@@ -144,6 +144,13 @@ def _print_experiment_setup(config: SimulationConfig) -> None:
         print(f"  Allocator:     {alloc.type}{extra}")
         print(f"    controller:  {ctrl.id}")
         print(f"    manages:     {', '.join(ctrl.manages)}")
+        if ctrl.observability.type != "perfect":
+            obs_parts = ", ".join(
+                f"{k}={v}" for k, v in sorted(ctrl.observability.params.items())
+            )
+            print(f"    observability: {ctrl.observability.type}  ({obs_parts})")
+        if ctrl.scheduling_delay > 0:
+            print(f"    sched delay: {ctrl.scheduling_delay}s per decision")
 
     print("  Task generators:")
     for node in config.nodes:
