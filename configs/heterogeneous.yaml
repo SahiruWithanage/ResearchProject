@@ -61,12 +61,22 @@ nodes:
       generator:
         type: poisson
         rate: 0.6
-        task_type: telemetry
-        cpu_demand: 1.0
         memory_demand: 0.5
-        data_size: 200000     # bytes (200 KB sensor batch)
-        result_size: 10000    # bytes back to the source; deadline counts the return trip
         deadline_offset: 10.0
+        # Mixed workload: mostly small telemetry readings, occasionally a
+        # heavy analytics job. The sensor only accepts telemetry (see its
+        # profile), so every analytics task it generates MUST offload.
+        task_mix:
+          - weight: 0.85
+            task_type: telemetry
+            cpu_demand: 0.5
+            data_size: {dist: uniform, low: 100000, high: 300000}  # bytes
+            result_size: 10000
+          - weight: 0.15
+            task_type: analytics
+            cpu_demand: {dist: uniform, low: 2.0, high: 5.0}
+            data_size: 2000000       # bytes (2 MB frame batch)
+            result_size: 50000
 
   - id: node_act
     type: source
@@ -75,7 +85,8 @@ nodes:
     source:
       generator:
         type: poisson
-        rate: 0.4
+        # Time-varying load: swells and fades over a ~2-minute cycle.
+        rate: {pattern: sinusoidal, base: 0.4, amplitude: 0.3, period: 120.0}
         task_type: actuation
         cpu_demand: 2.0
         memory_demand: 1.0

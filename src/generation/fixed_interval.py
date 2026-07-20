@@ -1,19 +1,26 @@
-"""Fixed-interval task generator: one task every `interval` seconds (deterministic)."""
+"""Fixed-interval task generator: one task every `interval` seconds."""
 
 from __future__ import annotations
+
 import math
+from typing import Any
+
 import numpy as np
+
 from src.config.factory import generators
 from src.generation.base import TaskGenerator
+from src.generation.task_builder import TaskBuilder
 from src.models import Task
 
 
 @generators.register("fixed_interval")
 class FixedIntervalGenerator(TaskGenerator):
-    """Deterministic task generator: one task at every ``offset + k * interval``.
+    """Deterministic arrival times: one task at every ``offset + k * interval``.
 
-    Useful for debugging and tests where you want predictable arrival
-    times. Accepts an ``rng`` argument for API uniformity but doesn't use it.
+    Useful for debugging and tests where you want predictable arrivals.
+    Task *properties* may still be stochastic (distribution specs or a
+    ``task_mix``) — that requires an ``rng``; with constants only, the
+    generator stays fully deterministic and needs none.
     """
 
     def __init__(
@@ -22,34 +29,44 @@ class FixedIntervalGenerator(TaskGenerator):
         interval: float,
         source_node_id: str,
         offset: float = 0.0,
-        rng: np.random.Generator | None = None,  # unused, accepted for API uniformity
+        rng: np.random.Generator | None = None,
         task_type: str = "compute",
-        data_size: float = 1.0,
-        cpu_demand: float = 1.0,
-        memory_demand: float = 1.0,
-        deadline_offset: float = 5.0,
+        data_size: Any = 1.0,
+        cpu_demand: Any = 1.0,
+        memory_demand: Any = 1.0,
+        deadline_offset: Any = 5.0,
         priority: int = 1,
-        gpu_demand: float = 0.0,
-        result_size: float = 0.0,
+        gpu_demand: Any = 0.0,
+        result_size: Any = 0.0,
+        task_mix: list[dict[str, Any]] | None = None,
     ) -> None:
         if interval <= 0:
             raise ValueError(f"interval must be > 0, got {interval}")
         if offset < 0:
             raise ValueError(f"offset must be >= 0, got {offset}")
-        if deadline_offset <= 0:
-            raise ValueError(f"deadline_offset must be > 0, got {deadline_offset}")
 
         self.interval = float(interval)
         self.offset = float(offset)
         self.source_node_id = source_node_id
-        self.task_type = task_type
-        self.data_size = float(data_size)
-        self.cpu_demand = float(cpu_demand)
-        self.memory_demand = float(memory_demand)
-        self.deadline_offset = float(deadline_offset)
-        self.priority = int(priority)
-        self.gpu_demand = float(gpu_demand)
-        self.result_size = float(result_size)
+        self.rng = rng
+        self.builder = TaskBuilder(
+            source_node_id=source_node_id,
+            task_type=task_type,
+            data_size=data_size,
+            cpu_demand=cpu_demand,
+            memory_demand=memory_demand,
+            gpu_demand=gpu_demand,
+            result_size=result_size,
+            deadline_offset=deadline_offset,
+            priority=priority,
+            task_mix=task_mix,
+        )
+        if self.builder.needs_rng and rng is None:
+            raise ValueError(
+                "fixed_interval with stochastic task properties (distribution "
+                "specs or a task_mix) requires an rng; the Environment builder "
+                "injects one per source from the seed"
+            )
 
     def emit(self, t_start: float, t_end: float) -> list[Task]:
         if t_end < t_start:
@@ -78,16 +95,8 @@ class FixedIntervalGenerator(TaskGenerator):
 
     def _build_task(self, arrival_time: float, k: int) -> Task:
         # Index `k` in the id keeps task IDs stable regardless of how emit() is chunked.
-        return Task(
+        return self.builder.build(
             task_id=f"{self.source_node_id}_{k:06d}",
             arrival_time=arrival_time,
-            task_type=self.task_type,
-            data_size=self.data_size,
-            cpu_demand=self.cpu_demand,
-            memory_demand=self.memory_demand,
-            deadline=arrival_time + self.deadline_offset,
-            priority=self.priority,
-            source_node_id=self.source_node_id,
-            gpu_demand=self.gpu_demand,
-            result_size=self.result_size,
+            rng=self.rng,
         )
