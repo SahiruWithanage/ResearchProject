@@ -50,7 +50,30 @@
     </div>
 
     <div id="tab-replay" class="tab">
-      <p class="muted">The Packet-Tracer-style replay arrives in part 3.</p>
+      <div class="row">
+        <label>run <select id="replay-run"></select></label>
+        <button id="replay-refresh" class="tiny" title="refresh run list">refresh</button>
+        <button id="replay-play" class="primary">&#9654; play</button>
+        <label>speed
+          <select id="replay-speed">
+            <option value="1">1&times;</option>
+            <option value="2">2&times;</option>
+            <option value="5">5&times;</option>
+            <option value="10" selected>10&times;</option>
+            <option value="30">30&times;</option>
+            <option value="60">60&times;</option>
+          </select>
+        </label>
+        <input id="replay-scrub" type="range" min="0" max="1000" value="0">
+        <span id="replay-time" class="muted">no run loaded</span>
+      </div>
+      <svg id="replay-svg" viewBox="0 0 800 340" preserveAspectRatio="xMidYMid meet"></svg>
+      <div id="replay-stats" class="summary-cards"></div>
+      <div class="hint">Blue dots = task payloads travelling to their executor;
+      green dots = results returning home; red &#10007; = task lost. The bar under a
+      node is its queue; grey nodes are failed, orange outline = recovering.
+      Speed is simulated seconds per wall-clock second. Millisecond transfers are
+      stretched to stay visible &mdash; timestamps underneath stay true.</div>
     </div>
 
     <div id="tab-compare" class="tab">

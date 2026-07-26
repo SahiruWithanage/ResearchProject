@@ -29,6 +29,7 @@ from src.logging_utils.run_logger import RunLogger  # noqa: E402
 from src.simulation.environment import Environment  # noqa: E402
 from ui.introspect import build_schema  # noqa: E402
 from ui.metrics import summarize  # noqa: E402
+from ui.timeline import build_timeline  # noqa: E402
 
 # Tests monkeypatch these two; always resolve them at call time.
 CONFIG_DIR = PROJECT_ROOT / "configs"
@@ -241,6 +242,21 @@ def run():
         }
     return jsonify(
         {"ok": True, "run_id": run_id, "summary": summary, "log_dir": str(log_dir)}
+    )
+
+
+@app.route("/api/run/<run_id>/timeline")
+def run_timeline(run_id: str):
+    with _RUNS_LOCK:
+        entry = _RUNS.get(run_id)
+    if entry is None or entry.get("status") != "done":
+        return _error(f"no run {run_id!r} in this server session", status=404)
+    return jsonify(
+        {
+            "ok": True,
+            "run_id": run_id,
+            "timeline": build_timeline(entry["result"], entry["raw_config"]),
+        }
     )
 
 

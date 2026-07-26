@@ -1144,6 +1144,266 @@ async function refreshRunsList() {
 }
 
 /* ------------------------------------------------------------------ *
+ * replay tab — animate a finished run from its timeline
+ * ------------------------------------------------------------------ */
+
+const MIN_VISIBLE_TRANSFER = 0.15; // sim-seconds; visual stretch only
+
+const replay = {
+  data: null,
+  t: 0,
+  playing: false,
+  raf: null,
+  lastTs: null,
+  pos: {}, // id -> {x, y} on the replay canvas
+};
+
+async function replayRefreshRuns() {
+  const r = await api("/api/runs");
+  const sel = $("#replay-run");
+  const prev = sel.value;
+  sel.innerHTML = "";
+  for (const id of Object.keys(r.runs || {})) sel.append(el("option", { value: id, text: id }));
+  if (prev && [...sel.options].some((o) => o.value === prev)) sel.value = prev;
+}
+
+async function replayLoad(runId) {
+  if (!runId) return;
+  const r = await api(`/api/run/${runId}/timeline`);
+  if (!r.ok) {
+    $("#replay-time").textContent = r.error;
+    return;
+  }
+  replayStop();
+  replay.data = r.timeline;
+  replay.t = 0;
+
+  // reuse the Build tab's dragged positions where node ids match
+  replay.pos = {};
+  const nodes = replay.data.nodes;
+  nodes.forEach((n, i) => {
+    const saved = layout[`node:${n.id}`];
+    const a = (2 * Math.PI * i) / Math.max(nodes.length, 1) - Math.PI / 2;
+    replay.pos[n.id] = saved
+      ? { x: saved.x, y: saved.y }
+      : { x: 400 + 290 * Math.cos(a), y: 140 + 90 * Math.sin(a) };
+  });
+  (replay.data.controllers || []).forEach((c, i) => {
+    const saved = layout[`ctrl:${c.id}`];
+    replay.pos[`ctrl:${c.id}`] = saved || {
+      x: 150 + (500 * (i + 1)) / (replay.data.controllers.length + 1),
+      y: 300,
+    };
+  });
+  renderReplay(0);
+}
+
+/** Latest state row at or before t for a node: [t, queue, active, rel, failure]. */
+function stateAt(nodeId, t) {
+  const rows = replay.data.states[nodeId];
+  if (!rows || rows.length === 0 || rows[0][0] > t) return null;
+  let lo = 0;
+  let hi = rows.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (rows[mid][0] <= t) lo = mid;
+    else hi = mid - 1;
+  }
+  return rows[lo];
+}
+
+function lerp(a, b, p) {
+  return { x: a.x + (b.x - a.x) * p, y: a.y + (b.y - a.y) * p };
+}
+
+function renderReplay(t) {
+  const svg = $("#replay-svg");
+  svg.innerHTML = "";
+  if (!replay.data) return;
+  const data = replay.data;
+
+  // controller context (dim, static)
+  for (const ctrl of data.controllers || []) {
+    const c = replay.pos[`ctrl:${ctrl.id}`];
+    for (const id of ctrl.manages || []) {
+      const n = replay.pos[id];
+      if (n) svg.append(svgEl("line", { class: "topo-manage", x1: c.x, y1: c.y, x2: n.x, y2: n.y }));
+    }
+    svg.append(
+      svgEl("rect", {
+        x: c.x - 9, y: c.y - 9, width: 18, height: 18, rx: 3,
+        fill: "#fef3c7", stroke: "#d4a373", "stroke-width": 1.5,
+        transform: `rotate(45 ${c.x} ${c.y})`,
+      }),
+      svgEl("text", { x: c.x, y: c.y + 26, "text-anchor": "middle", class: "topo-link-label", text: ctrl.id })
+    );
+  }
+
+  // configured links
+  for (const link of data.links || []) {
+    const a = replay.pos[link.from];
+    const b = replay.pos[link.to];
+    if (!a || !b) continue;
+    svg.append(svgEl("line", { class: "topo-link", x1: a.x, y1: a.y, x2: b.x, y2: b.y }));
+    svg.append(
+      svgEl("text", {
+        class: "topo-link-label",
+        x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 4,
+        "text-anchor": "middle", text: link.profile || "",
+      })
+    );
+  }
+
+  // nodes with live state
+  for (const node of data.nodes) {
+    const p = replay.pos[node.id];
+    const st = stateAt(node.id, t);
+    const failure = st ? st[4] : "normal";
+    const queue = st ? st[1] : 0;
+
+    let fill = node.type === "source" ? "#dbe7ff" : "#dcf5e4";
+    let stroke = node.type === "source" ? "#2563eb" : "#15803d";
+    if (failure === "failed") { fill = "#e5e7eb"; stroke = "#6b7280"; }
+    else if (failure === "recovering") stroke = "#d97706";
+
+    svg.append(
+      svgEl("circle", { cx: p.x, cy: p.y, r: 16, fill, stroke, "stroke-width": failure === "recovering" ? 3.5 : 2 }),
+      svgEl("text", { x: p.x, y: p.y + 4, "text-anchor": "middle", "font-size": 10, fill: "#1d2733", text: queue }),
+      svgEl("text", { x: p.x, y: p.y + 32, "text-anchor": "middle", "font-size": 11, fill: "#1d2733", text: node.id })
+    );
+    // queue bar under the node
+    if (queue > 0) {
+      svg.append(
+        svgEl("rect", {
+          x: p.x - 15, y: p.y + 36, height: 4,
+          width: Math.min(queue, 15) * 2, rx: 2, fill: stroke,
+        })
+      );
+    }
+  }
+
+  // tasks in flight
+  let generated = 0, completedSoFar = 0, metSoFar = 0, lostSoFar = 0;
+  for (const task of data.tasks) {
+    if (task.decision > t) break; // tasks are sorted by decision time
+    generated += 1;
+    if (task.lost) {
+      lostSoFar += 1;
+      if (t - task.decision <= 1.0) {
+        const p = replay.pos[task.source];
+        if (p) svg.append(svgEl("text", {
+          x: p.x + 14, y: p.y - 14, "font-size": 14, fill: "#b91c1c", text: "✗",
+        }));
+      }
+      continue;
+    }
+    const end = task.ret ?? task.done;
+    if (end !== null && end <= t) {
+      completedSoFar += 1;
+      if (task.met) metSoFar += 1;
+      if (t - end <= 0.5) { // brief arrival flash
+        const home = task.ret !== null ? task.source : task.node;
+        const p = replay.pos[home];
+        if (p) svg.append(svgEl("circle", {
+          cx: p.x, cy: p.y, r: 16 + 6 * (t - end),
+          fill: "none", stroke: task.met ? "#15803d" : "#b91c1c",
+          "stroke-width": 2, opacity: 1 - (t - end) / 0.5,
+        }));
+      }
+      continue;
+    }
+    const src = replay.pos[task.source];
+    const dst = replay.pos[task.node];
+    if (!src || !dst) continue;
+
+    const remote = task.node !== task.source;
+    if (remote && task.t_start !== null && t >= task.t_start) {
+      const upEnd = Math.max(task.t_end ?? task.t_start, task.t_start + MIN_VISIBLE_TRANSFER);
+      if (t < upEnd) { // payload on the wire
+        const p = lerp(src, dst, (t - task.t_start) / (upEnd - task.t_start));
+        svg.append(svgEl("circle", { cx: p.x, cy: p.y, r: 4, fill: "#2563eb" }));
+        continue;
+      }
+    }
+    if (remote && task.done !== null && t >= task.done && task.ret !== null) {
+      const downEnd = Math.max(task.ret, task.done + MIN_VISIBLE_TRANSFER);
+      if (t < downEnd) { // result heading home
+        const p = lerp(dst, src, (t - task.done) / (downEnd - task.done));
+        svg.append(svgEl("circle", { cx: p.x, cy: p.y, r: 4, fill: "#15803d" }));
+      }
+    }
+    // queued/active tasks are represented by the node's queue bar
+  }
+
+  // live counters
+  const stats = $("#replay-stats");
+  stats.innerHTML = "";
+  stats.append(
+    statCard("generated", generated),
+    statCard("completed", completedSoFar),
+    statCard("lost", lostSoFar),
+    statCard("deadlines met", completedSoFar ? `${((100 * metSoFar) / completedSoFar).toFixed(1)}%` : "–")
+  );
+
+  $("#replay-time").textContent = `t = ${t.toFixed(1)} s / ${data.duration.toFixed(0)} s`;
+  const scrub = $("#replay-scrub");
+  if (document.activeElement !== scrub) {
+    scrub.value = Math.round((t / data.duration) * 1000);
+  }
+}
+
+function replayTick(ts) {
+  if (!replay.playing) return;
+  if (replay.lastTs !== null) {
+    replay.t += ((ts - replay.lastTs) / 1000) * Number($("#replay-speed").value);
+    if (replay.t >= replay.data.duration) {
+      replay.t = replay.data.duration;
+      renderReplay(replay.t);
+      replayStop();
+      return;
+    }
+  }
+  replay.lastTs = ts;
+  renderReplay(replay.t);
+  replay.raf = requestAnimationFrame(replayTick);
+}
+
+function replayPlay() {
+  if (!replay.data) return;
+  if (replay.t >= replay.data.duration) replay.t = 0;
+  replay.playing = true;
+  replay.lastTs = null;
+  $("#replay-play").innerHTML = "&#10074;&#10074; pause";
+  replay.raf = requestAnimationFrame(replayTick);
+}
+
+function replayStop() {
+  replay.playing = false;
+  if (replay.raf) cancelAnimationFrame(replay.raf);
+  $("#replay-play").innerHTML = "&#9654; play";
+}
+
+async function onReplayTab() {
+  await replayRefreshRuns();
+  const sel = $("#replay-run");
+  if (!replay.data && sel.options.length > 0) {
+    sel.value = sel.options[sel.options.length - 1].value; // newest run
+    await replayLoad(sel.value);
+  }
+}
+
+function bindReplay() {
+  $("#replay-refresh").addEventListener("click", replayRefreshRuns);
+  $("#replay-run").addEventListener("change", () => replayLoad($("#replay-run").value));
+  $("#replay-play").addEventListener("click", () => (replay.playing ? replayStop() : replayPlay()));
+  $("#replay-scrub").addEventListener("input", () => {
+    if (!replay.data) return;
+    replay.t = (Number($("#replay-scrub").value) / 1000) * replay.data.duration;
+    renderReplay(replay.t);
+  });
+}
+
+/* ------------------------------------------------------------------ *
  * config bar + tabs + boot
  * ------------------------------------------------------------------ */
 
@@ -1233,8 +1493,10 @@ function bindHeader() {
       for (const tab of document.querySelectorAll(".tab")) tab.classList.remove("active");
       $(`#tab-${btn.dataset.tab}`).classList.add("active");
       if (btn.dataset.tab === "run") refreshRunsList();
+      if (btn.dataset.tab === "replay") onReplayTab();
     });
   }
+  bindReplay();
 }
 
 (async function boot() {

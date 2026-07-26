@@ -251,6 +251,27 @@ def test_run_returns_summary_and_writes_standard_logs(client, tmp_path):
     assert runs[body["run_id"]]["status"] == "done"
 
 
+def test_timeline_reconstructs_task_lifecycles(client):
+    run_id = client.post("/api/run", json={"yaml": TINY_YAML}).get_json()["run_id"]
+    body = client.get(f"/api/run/{run_id}/timeline").get_json()
+    assert body["ok"] is True
+    tl = body["timeline"]
+    assert tl["duration"] == pytest.approx(5.0)
+    assert {n["id"] for n in tl["nodes"]} == {"s", "h"}
+    assert len(tl["tasks"]) == 5
+    first = tl["tasks"][0]
+    assert first["source"] == "s"  # derived from the task id
+    assert first["decision"] is not None
+    assert set(tl["states"]) <= {"s", "h"}
+    for rows in tl["states"].values():  # snapshot rows sorted by time
+        times = [r[0] for r in rows]
+        assert times == sorted(times)
+
+
+def test_timeline_unknown_run_is_404(client):
+    assert client.get("/api/run/nope/timeline").status_code == 404
+
+
 def test_run_summary_matches_metrics_definitions(client):
     from src.config import parse_config
     from src.simulation.environment import Environment

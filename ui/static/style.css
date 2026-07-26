@@ -203,3 +203,16 @@ table.mini th, table.mini td {
   text-align: left;
 }
 table.mini th { background: var(--bg); font-weight: 600; }
+
+/* ---- replay tab ---- */
+#replay-svg {
+  width: 100%;
+  height: 340px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-top: 0.6rem;
+}
+#tab-replay .hint { font-size: 0.75rem; color: var(--muted); margin-top: 0.3rem; }
+#replay-scrub { flex: 1; min-width: 12rem; accent-color: var(--accent); }
+#replay-time { font-family: var(--mono); font-size: 0.8rem; white-space: nowrap; }
