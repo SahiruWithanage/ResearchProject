@@ -45,6 +45,21 @@ Run the default Phase 1 experiment:
 python experiments/run_phase1.py configs/phase1.yaml
 ```
 
+### The UI
+
+```bash
+python -m ui
+```
+
+opens a browser page (default `http://127.0.0.1:8000`) where every knob in
+the config lives in one place: build a topology visually, pick allocators /
+generators / network models from dropdowns (the options are read live from
+the plugin registries, so a newly registered plugin appears automatically),
+watch the YAML update as you click (and hand-edit it — the form follows),
+then validate and run without leaving the browser. UI runs write the same
+four log files as the CLI, under `logs/ui/<run_id>/`, and configs saved from
+the UI are ordinary files in `configs/` you can run from the terminal.
+
 It writes these files into `logs/phase1_run01/`:
 
 - `allocation_log.csv` - one row per task: where it went, when it finished, did it meet its deadline.

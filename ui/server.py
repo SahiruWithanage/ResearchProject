@@ -143,6 +143,31 @@ def save_config(name: str):
 
 
 # ---------------------------------------------------------------------------
+# YAML bridge — the frontend never parses/serializes YAML itself, so the
+# panel and the config loader can never disagree on syntax.
+# ---------------------------------------------------------------------------
+
+
+@app.route("/api/yaml/parse", methods=["POST"])
+def yaml_parse():
+    raw, err = _load_yaml_body()
+    if err is not None:
+        return err
+    return jsonify({"ok": True, "data": raw})
+
+
+@app.route("/api/yaml/dump", methods=["POST"])
+def yaml_dump():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not isinstance(body.get("data"), dict):
+        return _error("request body must be JSON with a 'data' object field")
+    text = yaml.safe_dump(
+        body["data"], sort_keys=False, default_flow_style=False, allow_unicode=True
+    )
+    return jsonify({"ok": True, "yaml": text})
+
+
+# ---------------------------------------------------------------------------
 # Validate and run
 # ---------------------------------------------------------------------------
 

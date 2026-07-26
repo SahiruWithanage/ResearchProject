@@ -3,36 +3,69 @@
 <head>
 <meta charset="utf-8">
 <title>Edge Simulator UI</title>
-<style>
-  body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 60rem;
-         padding: 0 1rem; color: #222; }
-  h1 { font-size: 1.4rem; }
-  .registry { margin: 0.8rem 0; }
-  .registry b { text-transform: capitalize; }
-  code { background: #f2f2f2; padding: 0.1rem 0.35rem; border-radius: 4px; }
-  .note { color: #666; font-style: italic; }
-</style>
+<link rel="stylesheet" href="style.css">
 </head>
-<body>
-<h1>Edge Simulator UI — backend online</h1>
-<p class="note">Part 1 (backend) placeholder page. The Build / Run / Replay /
-Compare interface arrives in part 2. Everything below is read live from the
-plug-and-play registries — nothing is hardcoded.</p>
-<div id="registries">loading…</div>
-<script>
-fetch("/api/schema").then(r => r.json()).then(schema => {
-  const box = document.getElementById("registries");
-  box.innerHTML = "";
-  for (const [registry, plugins] of Object.entries(schema.registries)) {
-    const div = document.createElement("div");
-    div.className = "registry";
-    const names = Object.keys(plugins).map(n => `<code>${n}</code>`).join(" ");
-    div.innerHTML = `<b>${registry.replaceAll("_", " ")}</b> (${Object.keys(plugins).length}): ${names}`;
-    box.appendChild(div);
-  }
-}).catch(e => {
-  document.getElementById("registries").textContent = "failed to load schema: " + e;
-});
-</script>
+<body class="yaml-open">
+
+<header>
+  <h1>Edge Simulator</h1>
+  <div id="config-bar">
+    <select id="config-select"></select>
+    <button id="btn-load">Load</button>
+    <button id="btn-save">Save as…</button>
+    <button id="btn-new">New</button>
+    <span id="config-name" class="muted"></span>
+  </div>
+  <nav id="tabs">
+    <button data-tab="build" class="active">Build</button>
+    <button data-tab="run">Run</button>
+    <button data-tab="replay">Replay</button>
+    <button data-tab="compare">Compare</button>
+  </nav>
+  <button id="btn-yaml" title="toggle the live YAML panel">YAML</button>
+</header>
+
+<main id="layout">
+  <section id="content">
+
+    <div id="tab-build" class="tab active">
+      <div id="topology-box">
+        <svg id="topology" viewBox="0 0 800 260" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="hint">Drag nodes to arrange them (layout is cosmetic, saved in
+        your browser). Solid lines = configured links; dashed = controller manages.</div>
+      </div>
+      <div id="build-panels"></div>
+    </div>
+
+    <div id="tab-run" class="tab">
+      <div class="row">
+        <button id="btn-validate">Validate</button>
+        <button id="btn-run" class="primary">Run simulation</button>
+        <span id="run-busy" class="muted" hidden>running…</span>
+      </div>
+      <div id="validate-result"></div>
+      <div id="run-result"></div>
+      <h3>Runs this session</h3>
+      <div id="runs-list" class="muted">none yet</div>
+    </div>
+
+    <div id="tab-replay" class="tab">
+      <p class="muted">The Packet-Tracer-style replay arrives in part 3.</p>
+    </div>
+
+    <div id="tab-compare" class="tab">
+      <p class="muted">The comparison grid arrives in part 4.</p>
+    </div>
+
+  </section>
+
+  <aside id="yaml-panel">
+    <div id="yaml-status">YAML mirrors the form. Edits here update the form; form
+    edits regenerate this text (comments are not preserved).</div>
+    <textarea id="yaml-text" spellcheck="false"></textarea>
+  </aside>
+</main>
+
+<script src="app.js"></script>
 </body>
 </html>

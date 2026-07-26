@@ -112,6 +112,17 @@ def test_new_plugin_appears_in_schema_automatically():
         del allocators._items["test_dummy_ui_alloc"]
 
 
+def test_schema_composites_are_introspected():
+    comp = build_schema()["composites"]
+    mix = comp["generators"]["*"]["task_mix"]
+    assert mix["weight"]["required"] is True
+    assert "cpu_demand" in mix and "task_type" in mix
+    assert "source_node_id" not in mix  # environment-injected, hidden
+    traces = comp["network_models"]["trace_fluid_link"]["traces"]
+    assert traces["from"]["type"] == "node_id"
+    assert "file" in traces and "min_bandwidth_bps" in traces
+
+
 def test_schema_is_json_safe():
     # float("inf") in the instant profile must not leak into the payload.
     import json
@@ -148,6 +159,33 @@ def test_real_repo_configs_are_listed(client):
     listing = client.get("/api/configs").get_json()["configs"]
     assert "heterogeneous.yaml" in listing
     assert "phase1.yaml" in listing
+
+
+# ---------------------------------------------------------------------------
+# YAML bridge
+# ---------------------------------------------------------------------------
+
+
+def test_yaml_round_trip_preserves_data(client):
+    text = (ui_server.PROJECT_ROOT / "configs" / "heterogeneous.yaml").read_text(
+        encoding="utf-8"
+    )
+    parsed = client.post("/api/yaml/parse", json={"yaml": text}).get_json()
+    assert parsed["ok"] is True
+    dumped = client.post("/api/yaml/dump", json={"data": parsed["data"]}).get_json()
+    reparsed = client.post("/api/yaml/parse", json={"yaml": dumped["yaml"]}).get_json()
+    assert reparsed["data"] == parsed["data"]
+
+
+def test_yaml_parse_rejects_bad_syntax(client):
+    resp = client.post("/api/yaml/parse", json={"yaml": "a: [unclosed"})
+    assert resp.status_code == 400
+    assert resp.get_json()["stage"] == "yaml"
+
+
+def test_yaml_dump_requires_object(client):
+    resp = client.post("/api/yaml/dump", json={"data": "not an object"})
+    assert resp.status_code == 400
 
 
 # ---------------------------------------------------------------------------

@@ -35,7 +35,9 @@ from src.config.factory import (
 # Private core constants mirrored on purpose: importing them (rather than
 # copying values) keeps the UI in lockstep with the loader and profiles.
 from src.config.loader import _PROFILE_FIELDS
+from src.generation.task_builder import TaskBuilder
 from src.network.fluid_link import _BUILTIN_PROFILES
+from src.network.trace_fluid_link import _BandwidthTrace
 
 # Parameters the Environment injects at build time — never user-editable.
 _HIDDEN_PARAMS: dict[str, frozenset[str]] = {
@@ -151,6 +153,31 @@ def _registry_schema(
     return out
 
 
+def _composite_schemas() -> dict[str, Any]:
+    """Item schemas for list-valued params, introspected from the classes
+    that consume the items — so list editors are not hardcoded either.
+
+    Keyed registry -> plugin ("*" = any plugin of that registry) -> param.
+    """
+    mix_item = _class_params(
+        TaskBuilder, frozenset({"source_node_id", "task_mix"})
+    )
+    mix_item = {
+        "weight": {"type": "number", "required": True},
+        **mix_item,
+    }
+    trace_item = _class_params(_BandwidthTrace, frozenset())
+    trace_item = {
+        "from": {"type": "node_id", "required": True},
+        "to": {"type": "node_id", "required": True},
+        **trace_item,
+    }
+    return {
+        "generators": {"*": {"task_mix": mix_item}},
+        "network_models": {"trace_fluid_link": {"traces": trace_item}},
+    }
+
+
 def build_schema() -> dict[str, Any]:
     """Everything the frontend needs to render every form, in one payload."""
     return {
@@ -169,4 +196,5 @@ def build_schema() -> dict[str, Any]:
         "node_fields": sorted(_PROFILE_FIELDS),
         "dist_capable_fields": _DIST_CAPABLE_FIELDS,
         "rate_pattern_fields": _RATE_PATTERN_FIELDS,
+        "composites": _composite_schemas(),
     }
