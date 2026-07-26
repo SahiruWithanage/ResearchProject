@@ -60,6 +60,12 @@ then validate and run without leaving the browser. UI runs write the same
 four log files as the CLI, under `logs/ui/<run_id>/`, and configs saved from
 the UI are ordinary files in `configs/` you can run from the terminal.
 
+Two more tabs round it out: **Replay** animates a finished run
+Packet-Tracer-style (task payloads travelling the links, results returning,
+queues growing, nodes failing and recovering, with play/pause/speed/scrub),
+and **Compare** runs several allocators / observability settings / seeds on
+the identical world and tabulates them side by side, with CSV export.
+
 It writes these files into `logs/phase1_run01/`:
 
 - `allocation_log.csv` - one row per task: where it went, when it finished, did it meet its deadline.

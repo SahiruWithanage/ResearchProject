@@ -27,6 +27,7 @@ from src.config import parse_config  # noqa: E402
 from src.config.loader import ConfigError  # noqa: E402
 from src.logging_utils.run_logger import RunLogger  # noqa: E402
 from src.simulation.environment import Environment  # noqa: E402
+from ui.compare import run_compare  # noqa: E402
 from ui.introspect import build_schema  # noqa: E402
 from ui.metrics import summarize  # noqa: E402
 from ui.timeline import build_timeline  # noqa: E402
@@ -243,6 +244,25 @@ def run():
     return jsonify(
         {"ok": True, "run_id": run_id, "summary": summary, "log_dir": str(log_dir)}
     )
+
+
+@app.route("/api/compare", methods=["POST"])
+def compare():
+    raw, err = _load_yaml_body()
+    if err is not None:
+        return err
+    body = request.get_json()
+    variants = body.get("variants")
+    if not isinstance(variants, list) or not variants:
+        return _error("provide a non-empty 'variants' list")
+    seeds = body.get("seeds")
+    try:
+        cells = run_compare(raw, variants, seeds)
+    except ValueError as e:  # includes ConfigError and the cell cap
+        return _error(str(e), stage="config")
+    except (KeyError, TypeError, OSError) as e:
+        return _error(_exc_message(e), stage="build")
+    return jsonify({"ok": True, "cells": cells})
 
 
 @app.route("/api/run/<run_id>/timeline")

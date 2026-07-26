@@ -77,7 +77,31 @@
     </div>
 
     <div id="tab-compare" class="tab">
-      <p class="muted">The comparison grid arrives in part 4.</p>
+      <p class="muted">Runs the current Build-tab config as the identical base
+      world and changes <b>one thing per row</b> — allocator rows keep the base
+      observability, observability rows keep the base allocator. Same seed =
+      same arrivals, same jitter, same everything else.</p>
+      <div class="card">
+        <h2>Allocator variants</h2>
+        <div id="cmp-allocators" class="row"></div>
+      </div>
+      <div class="card">
+        <h2>Observability variants</h2>
+        <div id="cmp-observability" class="row"></div>
+      </div>
+      <div class="card">
+        <h2>Seeds</h2>
+        <div class="row">
+          <input id="cmp-seeds" type="text" placeholder="e.g. 724, 725, 726">
+          <span class="muted">comma-separated; empty = the config's own seed</span>
+        </div>
+      </div>
+      <div class="row">
+        <button id="cmp-run" class="primary">Run comparison</button>
+        <span id="cmp-busy" class="muted" hidden>running grid&hellip;</span>
+        <button id="cmp-export" hidden>Export CSV</button>
+      </div>
+      <div id="cmp-result"></div>
     </div>
 
   </section>

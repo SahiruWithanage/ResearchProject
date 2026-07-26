@@ -1404,6 +1404,151 @@ function bindReplay() {
 }
 
 /* ------------------------------------------------------------------ *
+ * compare tab — grid runs over the identical base world
+ * ------------------------------------------------------------------ */
+
+// Observability presets are parameter values (not plugins), matching the
+// staleness ladder used in the evidence tables.
+const OBS_PRESETS = [
+  ["perfect (live truth)", null],
+  ["heartbeat 1 s", { type: "heartbeat", interval: 1.0, report_delay: 0.02 }],
+  ["heartbeat 5 s", { type: "heartbeat", interval: 5.0, report_delay: 0.02 }],
+  ["heartbeat 15 s", { type: "heartbeat", interval: 15.0, report_delay: 0.02 }],
+];
+
+let cmpCells = null; // last comparison result, for CSV export
+
+function renderCompareControls() {
+  const allocBox = $("#cmp-allocators");
+  allocBox.innerHTML = "";
+  for (const name of Object.keys(schema.registries.allocators)) {
+    const cb = el("input", { type: "checkbox", value: name });
+    allocBox.append(el("label", { class: "row" }, cb, name));
+  }
+  const obsBox = $("#cmp-observability");
+  obsBox.innerHTML = "";
+  OBS_PRESETS.forEach(([label], i) => {
+    const cb = el("input", { type: "checkbox", value: String(i) });
+    obsBox.append(el("label", { class: "row" }, cb, label));
+  });
+}
+
+function cmpVariants() {
+  const variants = [];
+  for (const cb of document.querySelectorAll("#cmp-allocators input:checked")) {
+    variants.push({ label: cb.value, allocator: { type: cb.value } });
+  }
+  for (const cb of document.querySelectorAll("#cmp-observability input:checked")) {
+    const [label, spec] = OBS_PRESETS[Number(cb.value)];
+    variants.push({ label, observability: spec });
+  }
+  return variants;
+}
+
+function fmtPlacement(placement) {
+  return Object.entries(placement || {}).map(([k, v]) => `${k}:${v}`).join(", ");
+}
+
+async function doCompare() {
+  const out = $("#cmp-result");
+  const variants = cmpVariants();
+  if (variants.length === 0) {
+    out.innerHTML = "";
+    out.append(resultBox(false, "Pick at least one variant", ""));
+    return;
+  }
+  const seeds = ($("#cmp-seeds").value || "")
+    .split(",").map((s) => s.trim()).filter(Boolean).map(Number);
+
+  $("#cmp-busy").hidden = false;
+  try {
+    const r = await api("/api/compare", {
+      yaml: await currentYaml(),
+      variants,
+      seeds: seeds.length ? seeds : null,
+    });
+    out.innerHTML = "";
+    if (!r.ok) {
+      out.append(resultBox(false, `Comparison failed (${r.stage || "request"})`, r.error));
+      cmpCells = null;
+      $("#cmp-export").hidden = true;
+      return;
+    }
+    cmpCells = r.cells;
+    $("#cmp-export").hidden = false;
+
+    const t = el("table", { class: "mini" });
+    t.append(
+      el("tr", {},
+        el("th", { text: "variant" }), el("th", { text: "seed" }),
+        el("th", { text: "done" }), el("th", { text: "lost" }),
+        el("th", { text: "deadline %" }), el("th", { text: "mean latency" }),
+        el("th", { text: "placement" }))
+    );
+    const bySeedCount = new Set(r.cells.map((c) => c.seed)).size;
+    let lastLabel = null;
+    const group = []; // cells of the current variant, for the mean row
+    const flushMean = () => {
+      if (bySeedCount < 2 || group.length < 2) { group.length = 0; return; }
+      const mean = (f) => group.reduce((a, c) => a + f(c.summary), 0) / group.length;
+      const tr = el("tr", {},
+        el("td", {}, el("b", { text: `${group[0].label} — mean` })),
+        el("td", { text: `${group.length} seeds` }),
+        el("td", { text: mean((s) => s.tasks_completed).toFixed(1) }),
+        el("td", { text: mean((s) => s.tasks_lost).toFixed(1) }),
+        el("td", {}, el("b", { text: `${mean((s) => s.deadline_pct).toFixed(1)}%` })),
+        el("td", {}, el("b", { text: `${mean((s) => s.mean_latency_s).toFixed(3)} s` })),
+        el("td", { text: "" }));
+      t.append(tr);
+      group.length = 0;
+    };
+    for (const cell of r.cells) {
+      if (lastLabel !== null && cell.label !== lastLabel) flushMean();
+      lastLabel = cell.label;
+      group.push(cell);
+      const s = cell.summary;
+      t.append(
+        el("tr", {},
+          el("td", { text: cell.label }),
+          el("td", { text: cell.seed }),
+          el("td", { text: `${s.tasks_completed}/${s.tasks_generated}` }),
+          el("td", { text: s.tasks_lost }),
+          el("td", { text: `${s.deadline_pct.toFixed(1)}%` }),
+          el("td", { text: `${s.mean_latency_s.toFixed(3)} s` }),
+          el("td", { text: fmtPlacement(s.placement) }))
+      );
+    }
+    flushMean();
+    out.append(t);
+  } finally {
+    $("#cmp-busy").hidden = true;
+  }
+}
+
+function cmpExportCsv() {
+  if (!cmpCells) return;
+  const header = "variant,seed,tasks_generated,tasks_completed,tasks_lost,deadline_pct,mean_latency_s,placement";
+  const lines = cmpCells.map((c) => {
+    const s = c.summary;
+    const placement = fmtPlacement(s.placement).replaceAll(",", ";");
+    return [
+      JSON.stringify(c.label), c.seed, s.tasks_generated, s.tasks_completed,
+      s.tasks_lost, s.deadline_pct.toFixed(2), s.mean_latency_s.toFixed(4),
+      JSON.stringify(placement),
+    ].join(",");
+  });
+  const blob = new Blob([[header, ...lines].join("\n")], { type: "text/csv" });
+  const a = el("a", { href: URL.createObjectURL(blob), download: "comparison.csv" });
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function bindCompare() {
+  $("#cmp-run").addEventListener("click", doCompare);
+  $("#cmp-export").addEventListener("click", cmpExportCsv);
+}
+
+/* ------------------------------------------------------------------ *
  * config bar + tabs + boot
  * ------------------------------------------------------------------ */
 
@@ -1497,6 +1642,8 @@ function bindHeader() {
     });
   }
   bindReplay();
+  bindCompare();
+  renderCompareControls();
 }
 
 (async function boot() {

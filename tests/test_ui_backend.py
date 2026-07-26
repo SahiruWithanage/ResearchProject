@@ -251,6 +251,70 @@ def test_run_returns_summary_and_writes_standard_logs(client, tmp_path):
     assert runs[body["run_id"]]["status"] == "done"
 
 
+def test_compare_runs_variant_seed_grid(client):
+    resp = client.post(
+        "/api/compare",
+        json={
+            "yaml": TINY_YAML,
+            "variants": [
+                {"label": "load_aware", "allocator": {"type": "load_aware"}},
+                {"label": "latency_first", "allocator": {"type": "latency_first"}},
+            ],
+            "seeds": [1, 2],
+        },
+    )
+    body = resp.get_json()
+    assert body["ok"] is True
+    cells = body["cells"]
+    assert [(c["label"], c["seed"]) for c in cells] == [
+        ("load_aware", 1),
+        ("load_aware", 2),
+        ("latency_first", 1),
+        ("latency_first", 2),
+    ]
+    for c in cells:
+        assert c["summary"]["tasks_generated"] == 5
+
+
+def test_compare_cell_matches_direct_run(client):
+    # same allocator + same seed as the base config = identical world,
+    # so the comparison cell must reproduce a direct run exactly
+    direct = client.post("/api/run", json={"yaml": TINY_YAML}).get_json()["summary"]
+    cell = client.post(
+        "/api/compare",
+        json={
+            "yaml": TINY_YAML,
+            "variants": [{"label": "base", "allocator": {"type": "load_aware"}}],
+        },
+    ).get_json()["cells"][0]
+    for key in ("tasks_generated", "tasks_completed", "deadline_pct", "placement"):
+        assert cell["summary"][key] == direct[key]
+
+
+def test_compare_observability_none_restores_perfect(client):
+    resp = client.post(
+        "/api/compare",
+        json={
+            "yaml": TINY_YAML,
+            "variants": [{"label": "perfect", "observability": None}],
+        },
+    )
+    assert resp.get_json()["ok"] is True
+
+
+def test_compare_enforces_cell_cap(client):
+    resp = client.post(
+        "/api/compare",
+        json={
+            "yaml": TINY_YAML,
+            "variants": [{"label": f"v{i}", "allocator": {"type": "load_aware"}} for i in range(7)],
+            "seeds": list(range(10)),
+        },
+    )
+    assert resp.status_code == 400
+    assert "cap" in resp.get_json()["error"]
+
+
 def test_timeline_reconstructs_task_lifecycles(client):
     run_id = client.post("/api/run", json={"yaml": TINY_YAML}).get_json()["run_id"]
     body = client.get(f"/api/run/{run_id}/timeline").get_json()
