@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Edge Simulator UI</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 60rem;
+         padding: 0 1rem; color: #222; }
+  h1 { font-size: 1.4rem; }
+  .registry { margin: 0.8rem 0; }
+  .registry b { text-transform: capitalize; }
+  code { background: #f2f2f2; padding: 0.1rem 0.35rem; border-radius: 4px; }
+  .note { color: #666; font-style: italic; }
+</style>
+</head>
+<body>
+<h1>Edge Simulator UI — backend online</h1>
+<p class="note">Part 1 (backend) placeholder page. The Build / Run / Replay /
+Compare interface arrives in part 2. Everything below is read live from the
+plug-and-play registries — nothing is hardcoded.</p>
+<div id="registries">loading…</div>
+<script>
+fetch("/api/schema").then(r => r.json()).then(schema => {
+  const box = document.getElementById("registries");
+  box.innerHTML = "";
+  for (const [registry, plugins] of Object.entries(schema.registries)) {
+    const div = document.createElement("div");
+    div.className = "registry";
+    const names = Object.keys(plugins).map(n => `<code>${n}</code>`).join(" ");
+    div.innerHTML = `<b>${registry.replaceAll("_", " ")}</b> (${Object.keys(plugins).length}): ${names}`;
+    box.appendChild(div);
+  }
+}).catch(e => {
+  document.getElementById("registries").textContent = "failed to load schema: " + e;
+});
+</script>
+</body>
+</html>
