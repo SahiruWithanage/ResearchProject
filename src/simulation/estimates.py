@@ -49,7 +49,7 @@ class CompletionEstimator:
         """Seconds this task computes on ``node``.
 
         A task occupies exactly one worker, so worker *count* doesn't speed
-        it up — only the node's ``cpu_speed`` does. (Historical note: this
+        it up - only the node's ``cpu_speed`` does. (Historical note: this
         used to divide by the worker count, which didn't match the engine.)
         """
         return task.cpu_demand / node.cpu_speed
@@ -80,7 +80,7 @@ class CompletionEstimator:
         """Estimated *result-in-hand* time if placed on ``target`` now.
 
         Uplink + queue wait + compute + (if a result must travel back)
-        the expected downlink — matching how ``deadline_met`` is judged.
+        the expected downlink - matching how ``deadline_met`` is judged.
         """
         state = states[target.node_id]
         transfer = self.uplink_delay(source_id, target.node_id, task, t)

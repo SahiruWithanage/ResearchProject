@@ -15,11 +15,11 @@ class WeightedScoreAllocator(Allocator):
     Score components (all deterministic expectations, so no randomness is
     consumed; states come from the controller's observability model):
 
-    - **delay**: expected network time — uplink + result downlink, seconds.
+    - **delay**: expected network time - uplink + result downlink, seconds.
     - **load**: expected queue wait on the node, seconds.
     - **compute**: expected service time (``cpu_demand / cpu_speed``),
-      seconds — captures how *slow* the node is for this task.
-    - **energy**: ``energy_cost_factor * compute seconds`` — penalises
+      seconds - captures how *slow* the node is for this task.
+    - **energy**: ``energy_cost_factor * compute seconds`` - penalises
       burning time on expensive nodes. Off by default (weight 0).
 
     ``score = w_delay*delay + w_load*load + w_compute*compute + w_energy*energy``

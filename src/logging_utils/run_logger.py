@@ -10,8 +10,11 @@ from src.models import AllocationOutcome, NodeState
 from src.simulation.environment import EnvironmentResult
 
 # Column orders are part of the public output format. Don't reorder casually.
+# Ordered along a task's life: arrival -> decision -> transfer -> compute ->
+# completion -> return.
 _ALLOC_FIELDS: tuple[str, ...] = (
     "task_id",
+    "arrival_time",
     "decision_time",
     "allocator_type",
     "selected_node",
@@ -81,6 +84,7 @@ class RunLogger:
                 writer.writerow(
                     [
                         o.task_id,
+                        _fmt_float(o.arrival_time),
                         _fmt_float(o.decision_time),
                         o.allocator_type,
                         o.selected_node or "",

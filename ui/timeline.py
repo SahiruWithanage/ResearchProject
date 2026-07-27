@@ -1,6 +1,6 @@
 """Convert a finished run into the replay timeline the browser animates.
 
-Zero new instrumentation: everything the animation needs already exists —
+Zero new instrumentation: everything the animation needs already exists -
 AllocationOutcome carries each task's full lifecycle timestamps (decision,
 uplink transfer, compute, completion, return leg, lost flag) and the
 NodeState snapshots carry queue depth / reliability / failure state over
@@ -23,17 +23,37 @@ def build_timeline(
         for n in raw_nodes
         if isinstance(n, dict)
     ]
-    controllers = [
-        {"id": c.get("id"), "manages": c.get("manages") or []}
-        for c in (raw_config.get("controllers") or [])
-        if isinstance(c, dict)
-    ]
+    controllers = []
+    for c in raw_config.get("controllers") or []:
+        if not isinstance(c, dict):
+            continue
+        obs = c.get("observability") or {}
+        controllers.append(
+            {
+                "id": c.get("id"),
+                "manages": c.get("manages") or [],
+                # lets the replay animate heartbeat reports and dispatch
+                "observability": {
+                    "type": obs.get("type", "perfect"),
+                    "interval": obs.get("interval"),
+                    "report_delay": obs.get("report_delay", 0.0),
+                },
+                "scheduling_delay": c.get("scheduling_delay", 0.0),
+            }
+        )
     network = raw_config.get("network") or {}
     links = [
         {"from": l.get("from"), "to": l.get("to"), "profile": l.get("profile")}
         for l in (network.get("links") or [])
         if isinstance(l, dict)
     ]
+    # The replay map draws the same picture as the build map, so it needs the
+    # default profile every un-overridden pair communicates over.
+    network_info = {
+        "type": network.get("type", "instant"),
+        "default_profile": network.get("default_profile", "wifi"),
+        "configured": bool(network),
+    }
 
     tasks = []
     for o in result.outcomes:
@@ -44,6 +64,7 @@ def build_timeline(
                 "id": o.task_id,
                 "source": source,
                 "node": o.selected_node,
+                "arrival": o.arrival_time,
                 "decision": o.decision_time,
                 "t_start": o.transfer_start,
                 "t_end": o.transfer_end,
@@ -75,6 +96,7 @@ def build_timeline(
         "nodes": nodes,
         "controllers": controllers,
         "links": links,
+        "network": network_info,
         "tasks": tasks,
         "states": states,
     }

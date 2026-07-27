@@ -5,10 +5,10 @@ the base config with only the variant's fields changed (and optionally
 the seed), so outcome differences are attributable to the variant.
 
 A variant is a dict with a ``label`` plus any of:
-- ``allocator`` / ``observability`` / ``scheduling_delay`` — applied to
+- ``allocator`` / ``observability`` / ``scheduling_delay`` - applied to
   every controller (``observability: None`` restores the perfect default)
 - ``seed`` handling lives in ``run_compare`` via the seeds list
-- ``set`` — a deep-merge patch onto the top-level config for anything else
+- ``set`` - a deep-merge patch onto the top-level config for anything else
 """
 
 from __future__ import annotations

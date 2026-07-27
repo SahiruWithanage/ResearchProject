@@ -4,8 +4,8 @@ Input: one CSV from https://github.com/uccmisl/5Gdataset (columns include
 Timestamp, DL_bitrate, UL_bitrate, State, NetworkMode, ...; 1 sample/sec;
 bitrates in kbit/s).
 
-Output: the simulator's bandwidth-trace format — columns ``t`` (seconds
-from 0) and ``bandwidth_bps`` — usable by the ``trace_fluid_link`` network
+Output: the simulator's bandwidth-trace format - columns ``t`` (seconds
+from 0) and ``bandwidth_bps`` - usable by the ``trace_fluid_link`` network
 model.
 
 Method (documented for the thesis's real-vs-derived data separation):

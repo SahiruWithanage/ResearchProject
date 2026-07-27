@@ -1,11 +1,11 @@
-/* Edge Simulator UI — vanilla JS, no build step.
+/* Edge Simulator UI - vanilla JS, no build step.
  *
  * Principles:
  * - Every dropdown/field is generated from /api/schema (registry
  *   introspection). Nothing plugin-specific is hardcoded here.
  * - The YAML panel is the truth the simulator sees: form edits are
  *   serialized server-side (/api/yaml/dump), panel edits are parsed
- *   server-side (/api/yaml/parse) — the browser never parses YAML.
+ *   server-side (/api/yaml/parse) - the browser never parses YAML.
  */
 "use strict";
 
@@ -109,6 +109,7 @@ function dirty() {
 /** Call after structural cfg changes (lists, type switches). */
 function rebuild() {
   renderBuild();
+  refreshModal();
   dirty();
 }
 
@@ -120,7 +121,7 @@ yamlText.addEventListener(
       cfg = r.data;
       renderBuild();
       drawTopology();
-      setYamlStatus(true, "parsed — form updated");
+      setYamlStatus(true, "parsed - form updated");
     } else {
       setYamlStatus(false, r.error);
     }
@@ -473,10 +474,20 @@ function profilesCard() {
     })
   );
   card.append(h);
+  card.append(
+    el("p", {
+      class: "hint",
+      text:
+        "Reusable hardware presets - define a device class once (e.g. a " +
+        "Raspberry-Pi-ish sensor_class or a rack edge_server) and any node " +
+        "can adopt it via its 'profile' dropdown. Fields set directly on a " +
+        "node override its profile.",
+    })
+  );
 
   const profiles = cfg.node_profiles || {};
   if (Object.keys(profiles).length === 0) {
-    card.append(el("div", { class: "muted", text: "No profiles — nodes define their hardware inline." }));
+    card.append(el("div", { class: "muted", text: "No profiles - nodes define their hardware inline." }));
     return card;
   }
   for (const [name, spec] of Object.entries(profiles)) {
@@ -535,29 +546,107 @@ function generatorSection(node) {
   return wrap;
 }
 
-function nodesCard() {
-  const card = el("div", { class: "card" });
-  const h = el("h2", { text: "Nodes" });
-  h.append(
-    el("button", {
-      class: "tiny",
-      text: "+ add node",
-      onclick: () => {
-        cfg.nodes = cfg.nodes || [];
-        cfg.nodes.push({
-          id: `node_${cfg.nodes.length + 1}`,
-          type: "helper",
-          cpu_capacity: 1.0,
-          memory_capacity: 4.0,
-          tier: "edge",
-        });
-        rebuild();
-      },
+function addNode() {
+  cfg.nodes = cfg.nodes || [];
+  cfg.nodes.push({
+    id: `node_${cfg.nodes.length + 1}`,
+    type: "helper",
+    cpu_capacity: 1.0,
+    memory_capacity: 4.0,
+    tier: "edge",
+  });
+  rebuild();
+  return cfg.nodes.length - 1;
+}
+
+/**
+ * Rename a node everywhere it is referenced: controller `manages`, network
+ * link overrides, bandwidth traces, scenario targets, and its saved map
+ * position. Renaming used to silently break those references.
+ */
+function renameNode(oldId, newId) {
+  const node = (cfg.nodes || []).find((n) => n.id === oldId);
+  if (!node) return;
+  node.id = newId;
+  for (const ctrl of cfg.controllers || []) {
+    if (Array.isArray(ctrl.manages)) {
+      ctrl.manages = ctrl.manages.map((m) => (m === oldId ? newId : m));
+    }
+  }
+  for (const link of (cfg.network && cfg.network.links) || []) {
+    if (link.from === oldId) link.from = newId;
+    if (link.to === oldId) link.to = newId;
+  }
+  for (const tr of (cfg.network && cfg.network.params && cfg.network.params.traces) || []) {
+    if (tr.from === oldId) tr.from = newId;
+    if (tr.to === oldId) tr.to = newId;
+  }
+  for (const scn of cfg.scenarios || []) {
+    if (scn.node === oldId) scn.node = newId;
+  }
+  if (layout[`node:${oldId}`]) {
+    layout[`node:${newId}`] = layout[`node:${oldId}`];
+    delete layout[`node:${oldId}`];
+    localStorage.setItem(layoutKey(), JSON.stringify(layout));
+  }
+  rebuild();
+}
+
+function renameController(oldId, newId) {
+  const ctrl = (cfg.controllers || []).find((c) => c.id === oldId);
+  if (!ctrl) return;
+  ctrl.id = newId;
+  for (const other of cfg.controllers || []) {
+    if (other.parent === oldId) other.parent = newId;
+  }
+  if (layout[`ctrl:${oldId}`]) {
+    layout[`ctrl:${newId}`] = layout[`ctrl:${oldId}`];
+    delete layout[`ctrl:${oldId}`];
+    localStorage.setItem(layoutKey(), JSON.stringify(layout));
+  }
+  rebuild();
+}
+
+/** Read-only view of what a node's profile grants, and what it overrides. */
+function profileSummary(node) {
+  const prof = (cfg.node_profiles || {})[node.profile];
+  if (!prof) return null;
+  const wrap = el("div", {});
+  wrap.append(el("h3", { text: `profile "${node.profile}" - effective hardware` }));
+  const t = el("table", { class: "mini" });
+  t.append(
+    el("tr", {},
+      el("th", { text: "field" }),
+      el("th", { text: "from profile" }),
+      el("th", { text: "this node" }),
+      el("th", { text: "effective" }))
+  );
+  for (const f of schema.node_fields) {
+    const fromProfile = prof[f];
+    const own = node[f];
+    if (fromProfile === undefined && own === undefined) continue;
+    const fmt = (v) => (v === undefined ? "-" : Array.isArray(v) ? v.join(", ") : String(v));
+    t.append(
+      el("tr", {},
+        el("td", { text: f }),
+        el("td", { text: fmt(fromProfile) }),
+        el("td", { text: own === undefined ? "-" : fmt(own) }),
+        el("td", {}, el("b", { text: fmt(own !== undefined ? own : fromProfile) })))
+    );
+  }
+  wrap.append(t);
+  wrap.append(
+    el("p", {
+      class: "hint",
+      text: "Set a field on the node to override the profile; clear it to fall back.",
     })
   );
-  card.append(h);
+  return wrap;
+}
 
-  (cfg.nodes || []).forEach((node, i) => {
+/** One node's full editor - used by the Config page and the map popup. */
+function nodeSubcard(node, i) {
+  {
     const sub = el("div", { class: "subcard" });
     const head = el("div", { class: "subhead" });
     head.append(
@@ -576,7 +665,13 @@ function nodesCard() {
 
     const fields = el("div", { class: "fields" });
     fields.append(
-      field("id", txtInput(node.id, (v) => { setOrDelete(node, "id", v); rebuild(); }), { required: true }),
+      field(
+        "id (rename)",
+        txtInput(node.id, (v) => {
+          if (v && v !== node.id) renameNode(node.id, v);
+        }),
+        { required: true }
+      ),
       field(
         "type",
         selInput(["source", "helper"], node.type, (v) => {
@@ -601,34 +696,38 @@ function nodesCard() {
     for (const f of schema.node_fields) fields.append(nodeFieldWidget(node, f));
     sub.append(fields);
 
+    const prof = profileSummary(node);
+    if (prof) sub.append(prof);
+
     if (node.type === "source") sub.append(generatorSection(node));
-    card.append(sub);
-  });
+    return sub;
+  }
+}
+
+function nodesCard() {
+  const card = el("div", { class: "card" });
+  const h = el("h2", { text: "Nodes" });
+  h.append(el("button", { class: "tiny", text: "+ add node", onclick: addNode }));
+  card.append(h);
+  (cfg.nodes || []).forEach((node, i) => card.append(nodeSubcard(node, i)));
   return card;
 }
 
-function controllersCard() {
-  const card = el("div", { class: "card" });
-  const h = el("h2", { text: "Controllers" });
-  h.append(
-    el("button", {
-      class: "tiny",
-      text: "+ add controller",
-      onclick: () => {
-        cfg.controllers = cfg.controllers || [];
-        cfg.controllers.push({
-          id: `ctrl_${cfg.controllers.length + 1}`,
-          allocator: { type: "load_aware" },
-          manages: [],
-          parent: null,
-        });
-        rebuild();
-      },
-    })
-  );
-  card.append(h);
+function addController() {
+  cfg.controllers = cfg.controllers || [];
+  cfg.controllers.push({
+    id: `ctrl_${cfg.controllers.length + 1}`,
+    allocator: { type: "load_aware" },
+    manages: [],
+    parent: null,
+  });
+  rebuild();
+  return cfg.controllers.length - 1;
+}
 
-  (cfg.controllers || []).forEach((ctrl, i) => {
+/** One controller's full editor - used by the Config page and the map popup. */
+function controllerSubcard(ctrl, i) {
+  {
     const sub = el("div", { class: "subcard" });
     const head = el("div", { class: "subhead" }, el("b", { text: ctrl.id || `#${i + 1}` }));
     head.append(
@@ -645,7 +744,13 @@ function controllersCard() {
 
     const base = el("div", { class: "fields" });
     base.append(
-      field("id", txtInput(ctrl.id, (v) => { setOrDelete(ctrl, "id", v); rebuild(); }), { required: true }),
+      field(
+        "id (rename)",
+        txtInput(ctrl.id, (v) => {
+          if (v && v !== ctrl.id) renameController(ctrl.id, v);
+        }),
+        { required: true }
+      ),
       field(
         "scheduling_delay (s)",
         numInput(ctrl.scheduling_delay, (v) => { setOrDelete(ctrl, "scheduling_delay", v); dirty(); }, { placeholder: "0" })
@@ -653,7 +758,7 @@ function controllersCard() {
     );
     sub.append(base);
 
-    // allocator — the strategy under study
+    // allocator - the strategy under study
     sub.append(el("h3", { text: "allocator" }));
     ctrl.allocator = ctrl.allocator || { type: "load_aware" };
     const allocReg = schema.registries.allocators;
@@ -673,7 +778,7 @@ function controllersCard() {
       })
     );
 
-    // observability — what the controller knows
+    // observability - what the controller knows
     sub.append(el("h3", { text: "observability (what the controller knows)" }));
     const obsReg = schema.registries.observability_models;
     const obsCurrent = ctrl.observability?.type || "perfect";
@@ -700,7 +805,7 @@ function controllersCard() {
       );
     }
 
-    // manages — checkbox per node
+    // manages - checkbox per node
     sub.append(el("h3", { text: "manages" }));
     const manages = el("div", { class: "row" });
     for (const id of nodeIds()) {
@@ -715,8 +820,16 @@ function controllersCard() {
       manages.append(el("label", { class: "row" }, cb, id));
     }
     sub.append(manages);
-    card.append(sub);
-  });
+    return sub;
+  }
+}
+
+function controllersCard() {
+  const card = el("div", { class: "card" });
+  const h = el("h2", { text: "Controllers" });
+  h.append(el("button", { class: "tiny", text: "+ add controller", onclick: addController }));
+  card.append(h);
+  (cfg.controllers || []).forEach((ctrl, i) => card.append(controllerSubcard(ctrl, i)));
   return card;
 }
 
@@ -724,11 +837,23 @@ function networkCard() {
   const card = el("div", { class: "card" });
   const h = el("h2", { text: "Network" });
   card.append(h);
+  card.append(
+    el("p", {
+      class: "hint",
+      text:
+        "Every node can already talk to every other node using the default " +
+        "profile below, which sets the bandwidth, base latency and jitter " +
+        "they share. You only add a link when one specific pair should differ, " +
+        "such as a wired LAN cable between the gateway and the server. On the " +
+        "map, a dotted line means the pair uses the default and a solid line " +
+        "means it has its own profile.",
+    })
+  );
 
   if (!cfg.network) {
     card.append(
       el("div", { class: "row" },
-        el("span", { class: "muted", text: "No network block — every transfer is instant." }),
+        el("span", { class: "muted", text: "No network block - every transfer is instant." }),
         el("button", {
           class: "tiny",
           text: "+ add network model",
@@ -790,7 +915,7 @@ function networkCard() {
     delete net.params;
   }
 
-  // links — per-pair profile overrides
+  // links - per-pair profile overrides
   card.append(el("h3", { text: "links (per-pair overrides; both directions resolve independently)" }));
   const linksWrap = el("div", {});
   function renderLinks() {
@@ -899,9 +1024,194 @@ function scenariosCard() {
     card.append(sub);
   });
   if (!cfg.scenarios || cfg.scenarios.length === 0) {
-    card.append(el("div", { class: "muted", text: "None — the world stays stable." }));
+    card.append(
+      el("div", {
+        class: "muted",
+        text:
+          "No scenarios. Nothing goes wrong during the run: no node fails and " +
+          "no node becomes less reliable. Add one to test how the allocator " +
+          "copes when things break.",
+      })
+    );
   }
   return card;
+}
+
+/* ------------------------------------------------------------------ *
+ * modal - click a device on the map, configure it in a small window
+ * ------------------------------------------------------------------ */
+
+let modalState = null; // {title: fn|string, render: fn} while open
+
+function openModal(title, render) {
+  modalState = { title, render };
+  $("#modal").hidden = false;
+  refreshModal();
+}
+
+function closeModal() {
+  modalState = null;
+  $("#modal").hidden = true;
+}
+
+/** Re-render the open modal after cfg changes; closes if its subject vanished. */
+function refreshModal() {
+  if (!modalState) return;
+  const content = modalState.render();
+  if (!content) {
+    closeModal();
+    return;
+  }
+  $("#modal-title").textContent =
+    typeof modalState.title === "function" ? modalState.title() : modalState.title;
+  const body = $("#modal-body");
+  body.innerHTML = "";
+  body.append(content);
+}
+
+/** Track a list element across re-renders: by index while the list length is
+ * unchanged (so editing its id keeps the popup open), by id after adds/removes
+ * (so the popup follows its subject or closes when it's deleted). */
+function listRef(list, index) {
+  return { index, id: list[index]?.id, count: list.length };
+}
+
+function resolveRef(list, ref) {
+  if (list.length !== ref.count) {
+    ref.count = list.length;
+    ref.index = list.findIndex((x) => x.id === ref.id);
+    return ref.index >= 0 ? list[ref.index] : null;
+  }
+  const item = list[ref.index];
+  if (item) ref.id = item.id;
+  return item || null;
+}
+
+function openNodeModal(index) {
+  const ref = listRef(cfg.nodes || [], index);
+  openModal(
+    () => `node · ${ref.id}`,
+    () => {
+      const node = resolveRef(cfg.nodes || [], ref);
+      return node ? nodeSubcard(node, ref.index) : null;
+    }
+  );
+}
+
+function openControllerModal(index) {
+  const ref = listRef(cfg.controllers || [], index);
+  openModal(
+    () => `controller · ${ref.id}`,
+    () => {
+      const ctrl = resolveRef(cfg.controllers || [], ref);
+      return ctrl ? controllerSubcard(ctrl, ref.index) : null;
+    }
+  );
+}
+
+/** Create/update/remove the directional link override for (from -> to). */
+function setLinkProfile(from, to, profile) {
+  cfg.network.links = cfg.network.links || [];
+  const i = cfg.network.links.findIndex((l) => l.from === from && l.to === to);
+  if (profile === "") {
+    if (i >= 0) cfg.network.links.splice(i, 1);
+    if (cfg.network.links.length === 0) delete cfg.network.links;
+  } else if (i >= 0) {
+    cfg.network.links[i].profile = profile;
+  } else {
+    cfg.network.links.push({ from, to, profile });
+  }
+  dirty();
+}
+
+function linkProfileField(labelText, from, to) {
+  const current = (cfg.network.links || []).find(
+    (l) => l.from === from && l.to === to
+  );
+  const options = [["", `(default: ${cfg.network.default_profile || "wifi"})`]].concat(
+    Object.keys(schema.network_profiles).map((p) => [p, p])
+  );
+  return field(
+    labelText,
+    selInput(options, (current && current.profile) || "", (v) => setLinkProfile(from, to, v)),
+    { wide: true }
+  );
+}
+
+/** Click a line on the map -> edit that pair's link. One dropdown sets BOTH
+ * directions (the normal case). The model resolves each direction on its own,
+ * so an "asymmetric" toggle reveals per-direction control when wanted. */
+function openLinkModal(a, b) {
+  const links0 = (cfg.network && cfg.network.links) || [];
+  const f0 = links0.find((l) => l.from === a && l.to === b);
+  const r0 = links0.find((l) => l.from === b && l.to === a);
+  let asym = ((f0 && f0.profile) || "") !== ((r0 && r0.profile) || "");
+
+  openModal(`link · ${a} ⇄ ${b}`, () => {
+    if (!cfg.network) return null;
+    const wrap = el("div", {});
+    const fields = el("div", { class: "fields" });
+    if (!asym) {
+      const cur = (cfg.network.links || []).find((l) => l.from === a && l.to === b);
+      const options = [["", `(default: ${cfg.network.default_profile || "wifi"})`]].concat(
+        Object.keys(schema.network_profiles).map((p) => [p, p])
+      );
+      fields.append(
+        field(
+          "link profile (both directions)",
+          selInput(options, (cur && cur.profile) || "", (v) => {
+            setLinkProfile(a, b, v);
+            setLinkProfile(b, a, v);
+          }),
+          { wide: true }
+        )
+      );
+    } else {
+      fields.append(
+        linkProfileField(`${a} → ${b}`, a, b),
+        linkProfileField(`${b} → ${a}`, b, a)
+      );
+    }
+    wrap.append(fields);
+    wrap.append(
+      el("button", {
+        class: "tiny",
+        text: asym ? "use the same profile both ways" : "asymmetric (per direction)...",
+        onclick: () => {
+          if (asym) {
+            // Collapsing to symmetric must actually equalise the directions,
+            // otherwise the map keeps showing "lan / wifi".
+            const fwd = (cfg.network.links || []).find((l) => l.from === a && l.to === b);
+            const profile = (fwd && fwd.profile) || "";
+            setLinkProfile(a, b, profile);
+            setLinkProfile(b, a, profile);
+          }
+          asym = !asym;
+          refreshModal();
+        },
+      })
+    );
+    wrap.append(
+      el("p", {
+        class: "hint",
+        text: asym
+          ? "Each direction resolves independently - fast one way, slow the " +
+            "other is allowed. The map labels such pairs \"lan / wifi\"."
+          : "Sets the same profile for both directions - the usual case.",
+      })
+    );
+    return wrap;
+  });
+}
+
+function openFromKey(key) {
+  if (key.startsWith("node:")) {
+    const i = (cfg.nodes || []).findIndex((n) => n.id === key.slice(5));
+    if (i >= 0) openNodeModal(i);
+  } else if (key.startsWith("ctrl:")) {
+    const i = (cfg.controllers || []).findIndex((c) => c.id === key.slice(5));
+    if (i >= 0) openControllerModal(i);
+  }
 }
 
 /* ------------------------------------------------------------------ *
@@ -927,15 +1237,67 @@ function defaultPositions() {
     const key = `node:${n.id}`;
     if (!layout[key]) {
       const a = (2 * Math.PI * i) / Math.max(nodes.length, 1) - Math.PI / 2;
-      layout[key] = { x: 400 + 280 * Math.cos(a), y: 105 + 70 * Math.sin(a) };
+      layout[key] = { x: 400 + 300 * Math.cos(a), y: 190 + 130 * Math.sin(a) };
     }
   });
   ctrls.forEach((c, i) => {
     const key = `ctrl:${c.id}`;
     if (!layout[key]) {
-      layout[key] = { x: 150 + (500 * (i + 1)) / (ctrls.length + 1), y: 225 };
+      layout[key] = { x: 150 + (500 * (i + 1)) / (ctrls.length + 1), y: 420 };
     }
   });
+}
+
+/**
+ * Draw every pair's connection, identically on the build map and the replay
+ * map: solid = explicit override, dotted = the implicit default-profile
+ * connection (wifi etc.) every other pair already uses. Lines are clickable
+ * when an onClick is supplied.
+ */
+function drawLinks(svg, pos, { nodes, links, defaultProfile, configured, onClick }) {
+  if (!configured) return;
+  const drawMesh = nodes.length <= 6; // implicit mesh only while readable
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i].id;
+      const b = nodes[j].id;
+      const fwd = links.find((l) => l.from === a && l.to === b);
+      const rev = links.find((l) => l.from === b && l.to === a);
+      const overridden = Boolean(fwd || rev);
+      if (!overridden && !drawMesh) continue;
+      const pa = pos(`node:${a}`);
+      const pb = pos(`node:${b}`);
+      if (!pa || !pb) continue;
+      svg.append(
+        svgEl("line", {
+          class: overridden ? "topo-link" : "topo-link-default",
+          x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
+        })
+      );
+      let label;
+      if (!overridden) {
+        label = defaultProfile;
+      } else {
+        const f = (fwd && fwd.profile) || defaultProfile;
+        const r = (rev && rev.profile) || defaultProfile;
+        label = f === r ? f : `${f} / ${r}`;
+      }
+      svg.append(
+        svgEl("text", {
+          class: "topo-link-label",
+          x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 - 5,
+          "text-anchor": "middle", text: label,
+        })
+      );
+      if (onClick) {
+        const hit = svgEl("line", {
+          class: "topo-hit", x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
+        });
+        hit.addEventListener("click", () => onClick(a, b));
+        svg.append(hit);
+      }
+    }
+  }
 }
 
 function drawTopology() {
@@ -944,7 +1306,7 @@ function drawTopology() {
   if (!cfg) return;
   defaultPositions();
 
-  const pos = (key) => layout[key] || { x: 400, y: 130 };
+  const pos = (key) => layout[key] || { x: 400, y: 200 };
 
   // manages (dashed) under everything
   for (const ctrl of cfg.controllers || []) {
@@ -954,21 +1316,13 @@ function drawTopology() {
       svg.append(svgEl("line", { class: "topo-manage", x1: c.x, y1: c.y, x2: n.x, y2: n.y }));
     }
   }
-  // links (solid) with profile labels
-  for (const link of cfg.network?.links || []) {
-    const a = pos(`node:${link.from}`);
-    const b = pos(`node:${link.to}`);
-    svg.append(svgEl("line", { class: "topo-link", x1: a.x, y1: a.y, x2: b.x, y2: b.y }));
-    svg.append(
-      svgEl("text", {
-        class: "topo-link-label",
-        x: (a.x + b.x) / 2,
-        y: (a.y + b.y) / 2 - 4,
-        "text-anchor": "middle",
-        text: link.profile || "",
-      })
-    );
-  }
+  drawLinks(svg, pos, {
+    nodes: cfg.nodes || [],
+    links: cfg.network?.links || [],
+    defaultProfile: cfg.network?.default_profile || "wifi",
+    configured: Boolean(cfg.network),
+    onClick: openLinkModal,
+  });
 
   const draggable = [];
   for (const node of cfg.nodes || []) {
@@ -1011,25 +1365,33 @@ function drawTopology() {
     draggable.push([g, key]);
   }
 
-  // dragging
+  // drag to arrange, click (without dragging) to open the config popup
   for (const [g, key] of draggable) {
     g.addEventListener("pointerdown", (ev) => {
       ev.preventDefault();
+      const start = { x: ev.clientX, y: ev.clientY };
+      let moved = false;
       const svgPoint = (e) => {
         const r = svg.getBoundingClientRect();
         return {
           x: ((e.clientX - r.left) / r.width) * 800,
-          y: ((e.clientY - r.top) / r.height) * 260,
+          y: ((e.clientY - r.top) / r.height) * 480,
         };
       };
       const move = (e) => {
-        layout[key] = svgPoint(e);
-        drawTopology();
+        if (Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) > 5) {
+          moved = true;
+        }
+        if (moved) {
+          layout[key] = svgPoint(e);
+          drawTopology();
+        }
       };
       const up = () => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
-        localStorage.setItem(layoutKey(), JSON.stringify(layout));
+        if (moved) localStorage.setItem(layoutKey(), JSON.stringify(layout));
+        else openFromKey(key);
       };
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up);
@@ -1094,6 +1456,18 @@ async function doRun() {
     }
     const s = r.summary;
     out.append(resultBox(true, `Run ${r.run_id} finished`, `logs: ${r.log_dir}`));
+    out.append(
+      el("div", { class: "row" },
+        el("button", {
+          text: "⤓ download logs (.zip)",
+          onclick: () => window.open(`/api/run/${r.run_id}/download`, "_blank"),
+        }),
+        el("button", {
+          text: "⤓ summary CSV",
+          onclick: () => exportSummaryCsv(r.run_id, s),
+        }),
+        el("span", { class: "muted", text: "zip = allocation_log, state_log, config_used, seed" }))
+    );
     const cards = el("div", { class: "summary-cards" });
     cards.append(
       statCard("tasks generated", s.tasks_generated),
@@ -1113,6 +1487,26 @@ async function doRun() {
   } finally {
     busy.hidden = true;
   }
+}
+
+function downloadCsv(filename, rows) {
+  const blob = new Blob([rows.join("\n")], { type: "text/csv" });
+  const a = el("a", { href: URL.createObjectURL(blob), download: filename });
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function exportSummaryCsv(runId, s) {
+  const rows = ["metric,value"];
+  for (const [k, v] of Object.entries(s)) {
+    if (v === null || v === undefined) continue;
+    if (typeof v === "object") {
+      for (const [k2, v2] of Object.entries(v)) rows.push(`${k}.${k2},${v2}`);
+    } else {
+      rows.push(`${k},${v}`);
+    }
+  }
+  downloadCsv(`run_${runId}_summary.csv`, rows);
 }
 
 async function refreshRunsList() {
@@ -1144,10 +1538,23 @@ async function refreshRunsList() {
 }
 
 /* ------------------------------------------------------------------ *
- * replay tab — animate a finished run from its timeline
+ * replay tab - animate a finished run from its timeline
  * ------------------------------------------------------------------ */
 
 const MIN_VISIBLE_TRANSFER = 0.15; // sim-seconds; visual stretch only
+
+// Deliberately well-separated hues: adjacent colours are hard to tell apart
+// on fast-moving markers, so control traffic (orange), payloads (blue),
+// results (green), births (pink) and monitoring (slate) never share a family.
+const C = {
+  born: "#ec4899", // pink ring
+  control: "#f97316", // orange: report out, instruction back
+  payload: "#2563eb", // blue
+  result: "#16a34a", // green
+  lost: "#dc2626", // red
+  heartbeat: "#64748b", // slate
+  recovering: "#0891b2", // cyan outline
+};
 
 const replay = {
   data: null,
@@ -1156,6 +1563,7 @@ const replay = {
   raf: null,
   lastTs: null,
   pos: {}, // id -> {x, y} on the replay canvas
+  selected: null, // {kind: "node"|"ctrl", id} shown in the inspector
 };
 
 async function replayRefreshRuns() {
@@ -1186,15 +1594,20 @@ async function replayLoad(runId) {
     const a = (2 * Math.PI * i) / Math.max(nodes.length, 1) - Math.PI / 2;
     replay.pos[n.id] = saved
       ? { x: saved.x, y: saved.y }
-      : { x: 400 + 290 * Math.cos(a), y: 140 + 90 * Math.sin(a) };
+      : { x: 400 + 300 * Math.cos(a), y: 190 + 130 * Math.sin(a) };
   });
   (replay.data.controllers || []).forEach((c, i) => {
     const saved = layout[`ctrl:${c.id}`];
     replay.pos[`ctrl:${c.id}`] = saved || {
       x: 150 + (500 * (i + 1)) / (replay.data.controllers.length + 1),
-      y: 300,
+      y: 420,
     };
   });
+  // which controller speaks for each source (for dispatch flashes)
+  replay.ctrlOf = {};
+  for (const c of replay.data.controllers || []) {
+    for (const id of c.manages || []) replay.ctrlOf[id] = c;
+  }
   renderReplay(0);
 }
 
@@ -1229,30 +1642,36 @@ function renderReplay(t) {
       const n = replay.pos[id];
       if (n) svg.append(svgEl("line", { class: "topo-manage", x1: c.x, y1: c.y, x2: n.x, y2: n.y }));
     }
-    svg.append(
+    const cg = svgEl("g", { class: "topo-node" });
+    if (replay.selected && replay.selected.kind === "ctrl" && replay.selected.id === ctrl.id) {
+      cg.append(svgEl("circle", {
+        cx: c.x, cy: c.y, r: 24, fill: "none",
+        stroke: "#2563eb", "stroke-width": 2, "stroke-dasharray": "4 3",
+      }));
+    }
+    cg.append(
       svgEl("rect", {
-        x: c.x - 9, y: c.y - 9, width: 18, height: 18, rx: 3,
-        fill: "#fef3c7", stroke: "#d4a373", "stroke-width": 1.5,
+        x: c.x - 12, y: c.y - 12, width: 24, height: 24, rx: 3,
+        fill: "#fef3c7", stroke: "#b45309", "stroke-width": 2,
         transform: `rotate(45 ${c.x} ${c.y})`,
       }),
-      svgEl("text", { x: c.x, y: c.y + 26, "text-anchor": "middle", class: "topo-link-label", text: ctrl.id })
+      svgEl("text", { x: c.x, y: c.y + 34, "text-anchor": "middle", "font-size": 13, fill: "#1d2733", text: ctrl.id })
     );
+    cg.addEventListener("click", () => {
+      replay.selected = { kind: "ctrl", id: ctrl.id };
+      renderReplay(replay.t);
+    });
+    svg.append(cg);
   }
 
-  // configured links
-  for (const link of data.links || []) {
-    const a = replay.pos[link.from];
-    const b = replay.pos[link.to];
-    if (!a || !b) continue;
-    svg.append(svgEl("line", { class: "topo-link", x1: a.x, y1: a.y, x2: b.x, y2: b.y }));
-    svg.append(
-      svgEl("text", {
-        class: "topo-link-label",
-        x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - 4,
-        "text-anchor": "middle", text: link.profile || "",
-      })
-    );
-  }
+  // same connection picture as the build map (wifi/default pairs included)
+  drawLinks(svg, (key) => replay.pos[key.slice(5)], {
+    nodes: data.nodes,
+    links: data.links || [],
+    defaultProfile: data.network?.default_profile || "wifi",
+    configured: data.network ? data.network.configured : (data.links || []).length > 0,
+    onClick: null, // topology is fixed during replay
+  });
 
   // nodes with live state
   for (const node of data.nodes) {
@@ -1260,17 +1679,34 @@ function renderReplay(t) {
     const st = stateAt(node.id, t);
     const failure = st ? st[4] : "normal";
     const queue = st ? st[1] : 0;
+    const active = st ? st[2] : 0;
 
     let fill = node.type === "source" ? "#dbe7ff" : "#dcf5e4";
     let stroke = node.type === "source" ? "#2563eb" : "#15803d";
     if (failure === "failed") { fill = "#e5e7eb"; stroke = "#6b7280"; }
-    else if (failure === "recovering") stroke = "#d97706";
+    else if (failure === "recovering") stroke = C.recovering;
 
-    svg.append(
-      svgEl("circle", { cx: p.x, cy: p.y, r: 16, fill, stroke, "stroke-width": failure === "recovering" ? 3.5 : 2 }),
-      svgEl("text", { x: p.x, y: p.y + 4, "text-anchor": "middle", "font-size": 10, fill: "#1d2733", text: queue }),
-      svgEl("text", { x: p.x, y: p.y + 32, "text-anchor": "middle", "font-size": 11, fill: "#1d2733", text: node.id })
+    const g = svgEl("g", { class: "topo-node" });
+    if (replay.selected && replay.selected.kind === "node" && replay.selected.id === node.id) {
+      g.append(svgEl("circle", {
+        cx: p.x, cy: p.y, r: 26, fill: "none",
+        stroke: "#2563eb", "stroke-width": 2, "stroke-dasharray": "4 3",
+      }));
+    }
+    g.append(
+      svgEl("circle", { cx: p.x, cy: p.y, r: 20, fill, stroke, "stroke-width": failure === "recovering" ? 4 : 2.5 }),
+      svgEl("text", { x: p.x, y: p.y + 2, "text-anchor": "middle", "font-size": 13, fill: "#1d2733", text: queue }),
+      svgEl("text", {
+        x: p.x, y: p.y + 14, "text-anchor": "middle", "font-size": 9,
+        fill: "#6b7684", text: active > 0 ? `▶${active}` : "",
+      }),
+      svgEl("text", { x: p.x, y: p.y + 38, "text-anchor": "middle", "font-size": 13, fill: "#1d2733", text: node.id })
     );
+    g.addEventListener("click", () => {
+      replay.selected = { kind: "node", id: node.id };
+      renderReplay(replay.t);
+    });
+    svg.append(g);
     // queue bar under the node
     if (queue > 0) {
       svg.append(
@@ -1282,55 +1718,120 @@ function renderReplay(t) {
     }
   }
 
+  // heartbeat reports travelling node -> controller (the controller's
+  // knowledge refreshes when these land; failed nodes go silent)
+  for (const ctrl of data.controllers || []) {
+    const obs = ctrl.observability || {};
+    if (obs.type !== "heartbeat" || !obs.interval) continue;
+    const cp = replay.pos[`ctrl:${ctrl.id}`];
+    if (!cp) continue;
+    const dur = Math.max(obs.report_delay || 0, 0.3); // visual stretch
+    const k = Math.floor(t / obs.interval);
+    const since = t - k * obs.interval;
+    if (k > 0 && since <= dur) {
+      for (const id of ctrl.manages || []) {
+        const st = stateAt(id, t);
+        if (st && st[4] === "failed") continue; // silent while down
+        const np = replay.pos[id];
+        if (!np) continue;
+        const p = lerp(np, cp, since / dur);
+        svg.append(svgEl("circle", { cx: p.x, cy: p.y, r: 4, fill: C.heartbeat }));
+      }
+    }
+  }
+
   // tasks in flight
   let generated = 0, completedSoFar = 0, metSoFar = 0, lostSoFar = 0;
   for (const task of data.tasks) {
     if (task.decision > t) break; // tasks are sorted by decision time
     generated += 1;
+
+    // birth pulse at the task's real generation time (the controller only
+    // decides at the next tick boundary, hence the separate dispatch marker)
+    const born = task.arrival ?? task.decision;
+    if (t >= born && t - born <= 0.35) {
+      const p = replay.pos[task.source];
+      if (p) {
+        svg.append(svgEl("circle", {
+          cx: p.x, cy: p.y, r: 6 + 40 * (t - born),
+          fill: "none", stroke: C.born, "stroke-width": 3,
+          opacity: 1 - (t - born) / 0.35,
+        }));
+      }
+    }
+    // Control exchange, as a round trip with the SOURCE - not the executor.
+    // The source reports its new task, the controller decides, and the
+    // instruction ("send it to X") comes back to the source, which is what
+    // actually transmits the payload. A lost task gets no instruction back.
+    const dCtrl = replay.ctrlOf ? replay.ctrlOf[task.source] : null;
+    if (dCtrl) {
+      const cp = replay.pos[`ctrl:${dCtrl.id}`];
+      const sp = replay.pos[task.source];
+      const ctrlEnd = Math.max(task.t_start ?? task.decision, born + 0.12);
+      if (cp && sp && t >= born && t < ctrlEnd) {
+        const half = born + (ctrlEnd - born) / 2;
+        if (t < half) {
+          const p = lerp(sp, cp, (t - born) / (half - born));
+          svg.append(svgEl("circle", { cx: p.x, cy: p.y, r: 5, fill: C.control }));
+        } else if (!task.lost) {
+          const p = lerp(cp, sp, (t - half) / (ctrlEnd - half));
+          svg.append(svgEl("rect", {
+            x: p.x - 5.5, y: p.y - 5.5, width: 11, height: 11, fill: C.control,
+            transform: `rotate(45 ${p.x} ${p.y})`,
+          }));
+        }
+      }
+    }
     if (task.lost) {
       lostSoFar += 1;
       if (t - task.decision <= 1.0) {
         const p = replay.pos[task.source];
         if (p) svg.append(svgEl("text", {
-          x: p.x + 14, y: p.y - 14, "font-size": 14, fill: "#b91c1c", text: "✗",
-        }));
-      }
-      continue;
-    }
-    const end = task.ret ?? task.done;
-    if (end !== null && end <= t) {
-      completedSoFar += 1;
-      if (task.met) metSoFar += 1;
-      if (t - end <= 0.5) { // brief arrival flash
-        const home = task.ret !== null ? task.source : task.node;
-        const p = replay.pos[home];
-        if (p) svg.append(svgEl("circle", {
-          cx: p.x, cy: p.y, r: 16 + 6 * (t - end),
-          fill: "none", stroke: task.met ? "#15803d" : "#b91c1c",
-          "stroke-width": 2, opacity: 1 - (t - end) / 0.5,
+          x: p.x + 18, y: p.y - 16, "font-size": 22, fill: C.lost, text: "✗",
         }));
       }
       continue;
     }
     const src = replay.pos[task.source];
     const dst = replay.pos[task.node];
+    const remote = task.node !== task.source;
+    const end = task.ret ?? task.done;
+    const hasReturn = remote && task.ret !== null && task.done !== null;
+    // Real transfers are milliseconds, so they are stretched to stay visible.
+    // The arrival flash must wait for the *stretched* leg to land, otherwise
+    // the dot is deleted part-way down the line.
+    const retEnd = hasReturn
+      ? Math.max(task.ret, task.done + MIN_VISIBLE_TRANSFER)
+      : end;
+
+    if (end !== null && end <= t) {
+      completedSoFar += 1;
+      if (task.met) metSoFar += 1;
+      if (t > retEnd + 0.5) continue; // long finished, nothing left to draw
+    }
     if (!src || !dst) continue;
 
-    const remote = task.node !== task.source;
     if (remote && task.t_start !== null && t >= task.t_start) {
       const upEnd = Math.max(task.t_end ?? task.t_start, task.t_start + MIN_VISIBLE_TRANSFER);
       if (t < upEnd) { // payload on the wire
         const p = lerp(src, dst, (t - task.t_start) / (upEnd - task.t_start));
-        svg.append(svgEl("circle", { cx: p.x, cy: p.y, r: 4, fill: "#2563eb" }));
+        svg.append(svgEl("circle", { cx: p.x, cy: p.y, r: 7, fill: C.payload }));
         continue;
       }
     }
-    if (remote && task.done !== null && t >= task.done && task.ret !== null) {
-      const downEnd = Math.max(task.ret, task.done + MIN_VISIBLE_TRANSFER);
-      if (t < downEnd) { // result heading home
-        const p = lerp(dst, src, (t - task.done) / (downEnd - task.done));
-        svg.append(svgEl("circle", { cx: p.x, cy: p.y, r: 4, fill: "#15803d" }));
-      }
+    if (hasReturn && t >= task.done && t < retEnd) { // result heading home
+      const p = lerp(dst, src, (t - task.done) / (retEnd - task.done));
+      svg.append(svgEl("circle", { cx: p.x, cy: p.y, r: 7, fill: C.result }));
+      continue;
+    }
+    if (end !== null && t >= retEnd && t - retEnd <= 0.5) { // arrival flash
+      const home = task.ret !== null ? task.source : task.node;
+      const p = replay.pos[home];
+      if (p) svg.append(svgEl("circle", {
+        cx: p.x, cy: p.y, r: 20 + 14 * (t - retEnd),
+        fill: "none", stroke: task.met ? C.result : C.lost,
+        "stroke-width": 3, opacity: 1 - (t - retEnd) / 0.5,
+      }));
     }
     // queued/active tasks are represented by the node's queue bar
   }
@@ -1342,14 +1843,123 @@ function renderReplay(t) {
     statCard("generated", generated),
     statCard("completed", completedSoFar),
     statCard("lost", lostSoFar),
-    statCard("deadlines met", completedSoFar ? `${((100 * metSoFar) / completedSoFar).toFixed(1)}%` : "–")
+    statCard("deadlines met", completedSoFar ? `${((100 * metSoFar) / completedSoFar).toFixed(1)}%` : "-")
   );
+
+  renderInspector(t);
 
   $("#replay-time").textContent = `t = ${t.toFixed(1)} s / ${data.duration.toFixed(0)} s`;
   const scrub = $("#replay-scrub");
   if (document.activeElement !== scrub) {
     scrub.value = Math.round((t / data.duration) * 1000);
   }
+}
+
+/** "What's happening inside this device right now" - live at the replay clock. */
+function renderInspector(t) {
+  const box = $("#replay-inspect");
+  const sel = replay.selected;
+  if (!sel) {
+    box.innerHTML = "";
+    box.append(el("span", { class: "muted", text: "Click a node or controller on the map to inspect it." }));
+    return;
+  }
+  const data = replay.data;
+  const rows = [];
+  let title;
+
+  if (sel.kind === "node") {
+    title = `node · ${sel.id}`;
+    const st = stateAt(sel.id, t);
+    const running = [];
+    const queued = [];
+    const inbound = [];
+    let generatedHere = 0, completedHere = 0, lostHere = 0, metHere = 0;
+    for (const task of data.tasks) {
+      if ((task.arrival ?? task.decision) <= t && task.source === sel.id) generatedHere += 1;
+      if (task.lost && task.source === sel.id && task.decision <= t) lostHere += 1;
+      if (task.node !== sel.id || task.lost) continue;
+      const done = task.done;
+      if (done !== null && done <= t) {
+        completedHere += 1;
+        if (task.met) metHere += 1;
+        continue;
+      }
+      if (task.t_start !== null && t >= task.t_start && task.t_end !== null && t < task.t_end) {
+        inbound.push(task.id);
+      } else if (task.c_start !== null && t >= task.c_start) {
+        running.push(task.id);
+      } else if (task.decision <= t) {
+        queued.push(task.id);
+      }
+    }
+    if (st) {
+      rows.push(["state", st[4]]);
+      rows.push(["queue length", st[1]]);
+      rows.push(["active (running)", st[2]]);
+      rows.push(["reliability", Number(st[3]).toFixed(3)]);
+    }
+    rows.push(["tasks generated here", generatedHere]);
+    rows.push(["completed here", `${completedHere} (${metHere} on time)`]);
+    if (lostHere) rows.push(["lost from this source", lostHere]);
+    rows.push(["arriving over network", inbound.length ? inbound.join(", ") : "-"]);
+    rows.push(["executing now", running.length ? running.join(", ") : "-"]);
+    rows.push(["waiting", queued.length ? queued.join(", ") : "-"]);
+  } else {
+    title = `controller · ${sel.id}`;
+    const ctrl = (data.controllers || []).find((c) => c.id === sel.id);
+    if (!ctrl) {
+      replay.selected = null;
+      return renderInspector(t);
+    }
+    const obs = ctrl.observability || {};
+    const managed = new Set(ctrl.manages || []);
+    let decided = 0, lost = 0;
+    const placed = {};
+    for (const task of data.tasks) {
+      if (task.decision > t || !managed.has(task.source)) continue;
+      decided += 1;
+      if (task.lost) lost += 1;
+      else if (task.node) placed[task.node] = (placed[task.node] || 0) + 1;
+    }
+    rows.push(["manages", (ctrl.manages || []).join(", ")]);
+    rows.push([
+      "observability",
+      obs.type === "heartbeat"
+        ? `heartbeat every ${obs.interval}s (+${obs.report_delay}s report delay)`
+        : "perfect (live truth)",
+    ]);
+    if (obs.type === "heartbeat") {
+      const age = t - Math.floor(t / obs.interval) * obs.interval + (obs.report_delay || 0);
+      rows.push(["view is stale by ≈", `${age.toFixed(2)} s`]);
+    }
+    rows.push(["scheduling delay", `${ctrl.scheduling_delay} s`]);
+    rows.push(["decisions made", decided]);
+    rows.push(["placed", Object.entries(placed).map(([k, v]) => `${k}:${v}`).join(", ") || "-"]);
+    if (lost) rows.push(["dropped (nowhere eligible)", lost]);
+    const silent = (ctrl.manages || []).filter((id) => {
+      const st = stateAt(id, t);
+      return st && st[4] === "failed";
+    });
+    if (silent.length) rows.push(["silent (not reporting)", silent.join(", ")]);
+  }
+
+  box.innerHTML = "";
+  const head = el("div", { class: "subhead" }, el("b", { text: title }));
+  head.append(
+    el("button", {
+      class: "tiny",
+      text: "close",
+      onclick: () => {
+        replay.selected = null;
+        renderReplay(replay.t);
+      },
+    })
+  );
+  box.append(head);
+  const t2 = el("table", { class: "mini" });
+  for (const [k, v] of rows) t2.append(el("tr", {}, el("td", { text: k }), el("td", { text: String(v) })));
+  box.append(t2);
 }
 
 function replayTick(ts) {
@@ -1404,7 +2014,7 @@ function bindReplay() {
 }
 
 /* ------------------------------------------------------------------ *
- * compare tab — grid runs over the identical base world
+ * compare tab - grid runs over the identical base world
  * ------------------------------------------------------------------ */
 
 // Observability presets are parameter values (not plugins), matching the
@@ -1492,7 +2102,7 @@ async function doCompare() {
       if (bySeedCount < 2 || group.length < 2) { group.length = 0; return; }
       const mean = (f) => group.reduce((a, c) => a + f(c.summary), 0) / group.length;
       const tr = el("tr", {},
-        el("td", {}, el("b", { text: `${group[0].label} — mean` })),
+        el("td", {}, el("b", { text: `${group[0].label} - mean` })),
         el("td", { text: `${group.length} seeds` }),
         el("td", { text: mean((s) => s.tasks_completed).toFixed(1) }),
         el("td", { text: mean((s) => s.tasks_lost).toFixed(1) }),
@@ -1537,10 +2147,7 @@ function cmpExportCsv() {
       JSON.stringify(placement),
     ].join(",");
   });
-  const blob = new Blob([[header, ...lines].join("\n")], { type: "text/csv" });
-  const a = el("a", { href: URL.createObjectURL(blob), download: "comparison.csv" });
-  a.click();
-  URL.revokeObjectURL(a.href);
+  downloadCsv("comparison.csv", [header, ...lines]);
 }
 
 function bindCompare() {
@@ -1559,6 +2166,16 @@ async function loadConfigsList() {
   for (const name of r.configs) sel.append(el("option", { value: name, text: name }));
 }
 
+/** Reflect the current config in the file dropdown; unsaved drafts get a
+ * temporary "(unsaved)" entry until they're saved (the list refresh drops it). */
+function setConfigSelect(name, unsaved = false) {
+  const sel = $("#config-select");
+  if (![...sel.options].some((o) => o.value === name)) {
+    sel.append(el("option", { value: name, text: unsaved ? `${name} (unsaved)` : name }));
+  }
+  sel.value = name;
+}
+
 async function loadConfig(name) {
   const r = await api(`/api/configs/${name}`);
   if (r.error) return;
@@ -1569,7 +2186,7 @@ async function loadConfig(name) {
   }
   cfg = parsed.data;
   currentName = name;
-  $("#config-name").textContent = name;
+  setConfigSelect(name);
   loadLayout();
   renderBuild();
   drawTopology();
@@ -1600,7 +2217,7 @@ function newConfig() {
     logging: { output_dir: "logs/ui_draft", log_state_every: 1.0 },
   };
   currentName = "untitled.yaml";
-  $("#config-name").textContent = currentName + " (unsaved)";
+  setConfigSelect(currentName, true);
   layout = {};
   renderBuild();
   drawTopology();
@@ -1614,9 +2231,8 @@ async function saveConfig() {
   const r = await api(`/api/configs/${name}`, { yaml: yamlText.value || (await currentYaml()) });
   if (r.ok) {
     currentName = name;
-    $("#config-name").textContent = name;
     await loadConfigsList();
-    $("#config-select").value = name;
+    setConfigSelect(name);
     setYamlStatus(true, `saved ${name}${r.overwrote ? " (overwrote)" : ""}`);
   } else {
     setYamlStatus(false, r.error);
@@ -1631,13 +2247,30 @@ function bindHeader() {
   $("#btn-validate").addEventListener("click", doValidate);
   $("#btn-run").addEventListener("click", doRun);
 
+  // map toolbar: add devices, open the network / simulation settings popups
+  $("#map-add-node").addEventListener("click", () => openNodeModal(addNode()));
+  $("#map-add-controller").addEventListener("click", () => openControllerModal(addController()));
+  $("#map-network").addEventListener("click", () => openModal("network", networkCard));
+  $("#map-sim").addEventListener("click", () => openModal("simulation settings", simCard));
+
+  $("#modal-close").addEventListener("click", closeModal);
+  $("#modal").addEventListener("click", (e) => {
+    if (e.target.id === "modal") closeModal(); // click outside the window
+  });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeModal();
+  });
+
   for (const btn of document.querySelectorAll("#tabs button")) {
     btn.addEventListener("click", () => {
       for (const b of document.querySelectorAll("#tabs button")) b.classList.remove("active");
       btn.classList.add("active");
       for (const tab of document.querySelectorAll(".tab")) tab.classList.remove("active");
       $(`#tab-${btn.dataset.tab}`).classList.add("active");
-      if (btn.dataset.tab === "run") refreshRunsList();
+      if (btn.dataset.tab === "map") {
+        drawTopology();
+        refreshRunsList();
+      }
       if (btn.dataset.tab === "replay") onReplayTab();
     });
   }

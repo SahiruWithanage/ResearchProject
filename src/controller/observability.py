@@ -18,7 +18,7 @@ This module makes that gap a pluggable, configurable model.
 
 Scope note (deliberate, see DESIGN.md): the *allocator's scoring
 information* (queue lengths etc.) comes from the observability model, but
-eligibility/admission (queue limits, suitability) stays physical — the
+eligibility/admission (queue limits, suitability) stays physical - the
 node itself always knows whether it is full, just like a real machine
 refusing a connection. The consequences of acting on stale beliefs (bad
 placements) are results to be measured, not errors.
@@ -73,7 +73,7 @@ class HeartbeatObservability(ObservabilityModel):
 
     Reports are captured at the first tick boundary after their scheduled
     moment (quantization <= dt) and labelled with the scheduled time. The
-    initial (t = 0) state is visible from the start — the controller knows
+    initial (t = 0) state is visible from the start - the controller knows
     the world it was configured with.
     """
 
@@ -102,7 +102,7 @@ class HeartbeatObservability(ObservabilityModel):
         for rt in self._runtimes:
             node_id = rt.node_id
             # Capture any reports whose scheduled moment has passed. A
-            # failed node sends nothing — its heartbeat simply goes silent
+            # failed node sends nothing - its heartbeat simply goes silent
             # and the controller's belief freezes at the last report.
             while self._next_report[node_id] <= t + eps:
                 scheduled = self._next_report[node_id]

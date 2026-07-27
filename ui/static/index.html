@@ -5,20 +5,19 @@
 <title>Edge Simulator UI</title>
 <link rel="stylesheet" href="style.css">
 </head>
-<body class="yaml-open">
+<body>
 
 <header>
   <h1>Edge Simulator</h1>
   <div id="config-bar">
     <select id="config-select"></select>
-    <button id="btn-load">Load</button>
-    <button id="btn-save">Save as…</button>
-    <button id="btn-new">New</button>
-    <span id="config-name" class="muted"></span>
+    <button id="btn-load">load</button>
+    <button id="btn-save">save as&hellip;</button>
+    <button id="btn-new">new</button>
   </div>
   <nav id="tabs">
-    <button data-tab="build" class="active">Build</button>
-    <button data-tab="run">Run</button>
+    <button data-tab="map" class="active">Map</button>
+    <button data-tab="config">Config</button>
     <button data-tab="replay">Replay</button>
     <button data-tab="compare">Compare</button>
   </nav>
@@ -28,25 +27,33 @@
 <main id="layout">
   <section id="content">
 
-    <div id="tab-build" class="tab active">
-      <div id="topology-box">
-        <svg id="topology" viewBox="0 0 800 260" preserveAspectRatio="xMidYMid meet"></svg>
-        <div class="hint">Drag nodes to arrange them (layout is cosmetic, saved in
-        your browser). Solid lines = configured links; dashed = controller manages.</div>
-      </div>
-      <div id="build-panels"></div>
-    </div>
-
-    <div id="tab-run" class="tab">
-      <div class="row">
+    <div id="tab-map" class="tab active">
+      <div class="row" id="map-toolbar">
+        <button id="map-add-node" class="tiny">+ node</button>
+        <button id="map-add-controller" class="tiny">+ controller</button>
+        <button id="map-network" class="tiny">network&hellip;</button>
+        <button id="map-sim" class="tiny">simulation&hellip;</button>
+        <span class="spacer"></span>
         <button id="btn-validate">Validate</button>
         <button id="btn-run" class="primary">Run simulation</button>
-        <span id="run-busy" class="muted" hidden>running…</span>
+        <span id="run-busy" class="muted" hidden>running&hellip;</span>
+      </div>
+      <div id="topology-box">
+        <svg id="topology" viewBox="0 0 800 480" preserveAspectRatio="xMidYMid meet"></svg>
+        <div class="hint">Click a device to configure it, click a line to change
+        that pair's link (both directions); drag devices to arrange (cosmetic,
+        saved in your browser). Solid lines = link overrides, dotted lines = the
+        default profile (e.g. wifi) every other pair uses, dashed amber =
+        controller manages.</div>
       </div>
       <div id="validate-result"></div>
       <div id="run-result"></div>
       <h3>Runs this session</h3>
       <div id="runs-list" class="muted">none yet</div>
+    </div>
+
+    <div id="tab-config" class="tab">
+      <div id="build-panels"></div>
     </div>
 
     <div id="tab-replay" class="tab">
@@ -56,6 +63,8 @@
         <button id="replay-play" class="primary">&#9654; play</button>
         <label>speed
           <select id="replay-speed">
+            <option value="0.25">0.25&times;</option>
+            <option value="0.5">0.5&times;</option>
             <option value="1">1&times;</option>
             <option value="2">2&times;</option>
             <option value="5">5&times;</option>
@@ -67,20 +76,36 @@
         <input id="replay-scrub" type="range" min="0" max="1000" value="0">
         <span id="replay-time" class="muted">no run loaded</span>
       </div>
-      <svg id="replay-svg" viewBox="0 0 800 340" preserveAspectRatio="xMidYMid meet"></svg>
+      <svg id="replay-svg" viewBox="0 0 800 480" preserveAspectRatio="xMidYMid meet"></svg>
+      <div id="replay-inspect" class="card"></div>
       <div id="replay-stats" class="summary-cards"></div>
-      <div class="hint">Blue dots = task payloads travelling to their executor;
-      green dots = results returning home; red &#10007; = task lost. The bar under a
-      node is its queue; grey nodes are failed, orange outline = recovering.
-      Speed is simulated seconds per wall-clock second. Millisecond transfers are
-      stretched to stay visible &mdash; timestamps underneath stay true.</div>
+      <div class="legend">
+        <span><svg viewBox="0 0 26 20"><circle cx="13" cy="10" r="7" fill="none" stroke="#ec4899" stroke-width="2.5"/></svg>task generated</span>
+        <span><svg viewBox="0 0 26 20"><circle cx="13" cy="10" r="5" fill="#f97316"/></svg>reported to controller</span>
+        <span><svg viewBox="0 0 26 20"><rect x="7.5" y="4.5" width="11" height="11" fill="#f97316" transform="rotate(45 13 10)"/></svg>instruction back to source</span>
+        <span><svg viewBox="0 0 26 20"><circle cx="13" cy="10" r="7" fill="#2563eb"/></svg>payload to executor</span>
+        <span><svg viewBox="0 0 26 20"><circle cx="13" cy="10" r="7" fill="#16a34a"/></svg>result back home</span>
+        <span><svg viewBox="0 0 26 20"><circle cx="7" cy="10" r="6" fill="none" stroke="#16a34a" stroke-width="2.5"/><circle cx="19" cy="10" r="6" fill="none" stroke="#dc2626" stroke-width="2.5"/></svg>deadline met / missed</span>
+        <span><svg viewBox="0 0 26 20"><text x="13" y="16" text-anchor="middle" font-size="18" fill="#dc2626">&#10007;</text></svg>task lost</span>
+        <span><svg viewBox="0 0 26 20"><circle cx="7" cy="10" r="4" fill="#64748b"/><circle cx="17" cy="10" r="4" fill="#64748b"/></svg>heartbeat (stops while down)</span>
+        <span><svg viewBox="0 0 26 20"><circle cx="13" cy="10" r="9" fill="#dcf5e4" stroke="#15803d" stroke-width="2"/><text x="13" y="13.5" text-anchor="middle" font-size="9" fill="#1d2733">3</text></svg>queued &middot; &#9654;n running</span>
+        <span><svg viewBox="0 0 26 20"><circle cx="13" cy="10" r="9" fill="#e5e7eb" stroke="#6b7280" stroke-width="2"/></svg>failed</span>
+        <span><svg viewBox="0 0 26 20"><circle cx="13" cy="10" r="9" fill="#dcf5e4" stroke="#0891b2" stroke-width="3.5"/></svg>recovering</span>
+      </div>
+      <div class="hint">Speed is simulated seconds per wall-clock second.
+      Millisecond transfers are stretched so you can see them; the timestamps
+      underneath stay true.</div>
     </div>
 
     <div id="tab-compare" class="tab">
-      <p class="muted">Runs the current Build-tab config as the identical base
-      world and changes <b>one thing per row</b> — allocator rows keep the base
-      observability, observability rows keep the base allocator. Same seed =
-      same arrivals, same jitter, same everything else.</p>
+      <p class="muted">A fair fight. Every box you tick below becomes one row
+      of the results table, and each row re-runs your current config with
+      <b>only that one setting swapped</b>. Everything else stays identical:
+      the same seed means the same tasks arrive at the same moments, over the
+      same links, with the same random noise. So if two rows differ in the
+      results, the setting you changed is the only thing that could have
+      caused it. Tick several seeds to check a result is not a fluke; you get
+      a row per seed plus an average row per setting.</p>
       <div class="card">
         <h2>Allocator variants</h2>
         <div id="cmp-allocators" class="row"></div>
@@ -112,6 +137,16 @@
     <textarea id="yaml-text" spellcheck="false"></textarea>
   </aside>
 </main>
+
+<div id="modal" hidden>
+  <div id="modal-box">
+    <div id="modal-head">
+      <b id="modal-title"></b>
+      <button id="modal-close" class="tiny" title="close">&#10005;</button>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
 
 <script src="app.js"></script>
 </body>

@@ -7,7 +7,7 @@ time is cut into windows of ``variation_period_s`` seconds, and every
 
 The factor is *counter-based*: derived by hashing (entropy, link, window
 index) into a fresh seeded generator, never by drawing from a shared
-stream. That means delays are a pure function of (link, t) — estimates
+stream. That means delays are a pure function of (link, t) - estimates
 stay deterministic, nothing depends on call order, and same-seed runs are
 identical regardless of which allocator is running.
 

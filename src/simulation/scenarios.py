@@ -1,7 +1,7 @@
 """Instability scenarios (Stage 8): scripted changes to the world over time.
 
 A scenario is a pluggable component that pokes the environment while the
-simulation runs — nodes crash and come back, reliability drifts. Configured
+simulation runs - nodes crash and come back, reliability drifts. Configured
 as a top-level YAML list; every entry is one scenario instance:
 
 .. code-block:: yaml
@@ -23,7 +23,7 @@ Contract: ``tick(t, world)`` is called once per simulation tick at the
 tick's *start*, before any processing. ``world`` is the Environment,
 offering exactly four hooks (see ``Environment``): ``fail_node``,
 ``begin_node_recovery``, ``restore_node``, ``set_node_reliability``.
-Scenarios must be idempotent per phase — ``tick`` fires every tick.
+Scenarios must be idempotent per phase - ``tick`` fires every tick.
 
 What failure means (see DESIGN.md decisions 54-55): a failed node evicts
 every held task (recorded as lost), does no work, stops sending

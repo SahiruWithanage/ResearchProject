@@ -1,32 +1,71 @@
 # Edge Computing Allocation - Honours Thesis
 
-This is the codebase for my Honours thesis, **"Probabilistic Stability-Aware Resource Allocation in Heterogeneous Edge Computing."** The repo will keep growing as I work through the staged plan.
+Codebase for my Honours thesis, **"Probabilistic Stability-Aware Resource
+Allocation in Heterogeneous Edge Computing: A Hierarchical and Distributed
+Dynamic Bayesian Approach."**
 
 ## What's the research about?
 
-Edge computing is when lots of small devices (sensors, phones, small servers near users) share computing work between themselves instead of sending everything to a big central cloud. When a new piece of work arrives, *someone* has to decide which device should handle it.
+Edge computing is when lots of small devices (sensors, phones, small servers
+near users) share computing work between themselves instead of sending
+everything to a distant cloud. When a new piece of work arrives, *someone*
+has to decide which device should handle it.
 
-The usual answers (send it to the least-busy device, or the closest one) only look at the current state. But things change - devices get busy, slow down, sometimes fail. My thesis asks: can a **Bayesian** approach, one that reasons about how *stable* each device is likely to be over the next few seconds, make better placement choices than the standard rules?
+The usual answers (send it to the least-busy device, or the closest one) only
+look at the current state, and they assume that state stays true after the
+decision is made. In real edge environments it doesn't: devices get busy,
+links slow down, nodes degrade and fail, and the controller's picture of the
+world is always slightly out of date. My thesis asks whether a **Bayesian**
+approach, one that reasons about how *stable* each device is likely to be
+over the next few seconds, makes better placement choices than the standard
+rules.
 
-To test that, I'm building a Python simulator where I can plug in different allocation strategies and compare them. The Bayesian allocator gets compared against deterministic baselines (and eventually a "best possible" optimum) under both stable and unstable conditions.
+"Distributed" here refers to the *inference* being distributed: per-node
+Bayesian modules estimating local viability, feeding a controller-level
+layer, rather than one monolithic model.
+
+To test that, this repo is a Python simulator where allocation strategies are
+swappable plug-ins, so each one can be run against an identical world and
+compared fairly.
 
 ## Where the project is right now
 
-The thesis follows a staged plan. The repo updates as I work through each stage.
-
-- [x] **Stages 1–2** - system model and a working simulation scaffold.
-- [x] **Stage 4** - heterogeneous nodes *(current state)*: per-node `cpu_speed`, enforced memory, `queue_limit` (overflow tasks can be lost + logged), task-type suitability, and reusable `node_profiles` in YAML. GPU processing and reliability behaviour deferred (fields exist). Example: `configs/heterogeneous.yaml`.
-- [x] **Delay / transmission substage** - fluid link profiles (LAN/Wi-Fi/5G) with jitter on by default, uplink *and* downlink (results travel home; deadlines count the return trip via `result_size`), CPU/transmission split, and a `varying_fluid_link` model whose link quality drifts over time.
-- [x] **Task realism substage** - per-task property distributions (`{dist: uniform|normal|lognormal|exponential, ...}`), weighted task-type mixes (`task_mix`), and time-varying arrival rates (sinusoidal load curves, piecewise bursts).
-- [x] **Control-plane substage** - the controller no longer has to be all-knowing: `observability: {type: heartbeat, interval, report_delay}` makes it decide from stale node reports, and `scheduling_delay` makes each decision cost time.
-- [x] **Stage 5** - deterministic baselines: `load_aware`, `latency_first`, and `weighted_score` (tunable `w_delay`/`w_load`/`w_compute`/`w_energy` weights over expected delay, queue wait, service time, and energy cost).
-- [ ] **Stage 6** - find the best-possible allocation as a reference point (using MILP).
-- [x] **Stage 7** - trace-informed inputs: real workload rhythms + duration/memory percentiles (Azure Functions 2019) and real measured 5G link bandwidth (UCC Ireland) flow in through `trace`/`empirical`/`percentile`/`trace_fluid_link` plug-ins. Converters in `tools/`; example: `configs/trace_driven.yaml` (needs the local datasets, see comments in the file).
-- [x] **Stage 8** - instability scenarios: a `scenarios:` list scripts node failures (tasks lost, heartbeats go silent, recovery at reduced speed) and reliability decay; plus the `reliability_threshold` allocator. All five stability-risk factors from the methodology are now available. Example: `configs/instability.yaml`.
-- [ ] **Stage 9** - the Bayesian allocator (the actual research contribution).
+- [x] **Stages 1-2** - system model and a working simulation scaffold.
+- [x] **Stage 4** - heterogeneous nodes: per-node `cpu_speed`, enforced
+      memory, `queue_limit` (overflow tasks are dropped and logged),
+      task-type suitability, reusable `node_profiles`. Example:
+      `configs/heterogeneous.yaml`.
+- [x] **Network realism** - link profiles (LAN / Wi-Fi / 5G) with jitter on
+      by default, uplink *and* downlink (results travel home, and the
+      deadline counts the return trip), plus `varying_fluid_link` whose link
+      quality drifts over time.
+- [x] **Workload realism** - per-task property distributions
+      (`{dist: uniform|normal|lognormal|exponential|empirical|percentile}`),
+      weighted task-type mixes (`task_mix`), and time-varying arrival rates
+      (sinusoidal curves, piecewise bursts, measured traces).
+- [x] **Control-plane realism** - the controller is not all-knowing:
+      `observability: {type: heartbeat, interval, report_delay}` makes it
+      decide from stale node reports, and `scheduling_delay` charges each
+      decision a fixed orchestration cost.
+- [x] **Stage 5** - deterministic baselines: `load_aware`, `latency_first`,
+      `weighted_score` (tunable delay/load/compute/energy weights), and
+      `reliability_threshold`.
+- [ ] **Stage 6** - a best-possible allocation as a reference point (MILP).
+- [x] **Stage 7** - trace-informed inputs: real workload rhythms and
+      duration/memory percentiles (Azure Functions 2019) and real measured 5G
+      bandwidth (UCC Ireland) enter through ordinary plug-ins. Converters live
+      in `tools/`; example `configs/trace_driven.yaml` (needs the local
+      datasets, see the comments in that file).
+- [x] **Stage 8** - instability: a `scenarios:` list scripts node failures
+      (tasks lost, heartbeats go silent, recovery at reduced speed) and
+      reliability decay. Example: `configs/instability.yaml`.
+- [ ] **Stage 9** - the Bayesian allocator and controller hierarchy (the
+      actual research contribution).
 - [ ] **Stage 10** - comparative experiments and analysis.
 
-The scaffold allocator (`local_first_helper_offload`) proves the pipeline works. **Baseline allocators** `load_aware` and `latency_first` are implemented; see `resources/DELAY_MODEL.md` for the delay model. Add a `network:` block (`instant` or `fluid_link` with LAN/Wi-Fi/5G profiles) so remote tasks incur uplink delay. Example: `configs/load_test.yaml`.
+Validation: the engine is checked against queueing theory. An M/D/1 workload
+reproduces the Pollaczek-Khinchine mean sojourn time (1.5 s) across seeds,
+enforced by `tests/test_validation.py`.
 
 ## Running it
 
@@ -39,63 +78,52 @@ source .venv/bin/activate           # macOS / Linux
 pip install -r requirements.txt
 ```
 
-Run the default Phase 1 experiment:
-
-```bash
-python experiments/run_phase1.py configs/phase1.yaml
-```
-
-### The UI
+### The UI (easiest way in)
 
 ```bash
 python -m ui
 ```
 
-opens a browser page (default `http://127.0.0.1:8000`) where every knob in
-the config lives in one place: build a topology visually, pick allocators /
-generators / network models from dropdowns (the options are read live from
-the plugin registries, so a newly registered plugin appears automatically),
-watch the YAML update as you click (and hand-edit it — the form follows),
-then validate and run without leaving the browser. UI runs write the same
-four log files as the CLI, under `logs/ui/<run_id>/`, and configs saved from
-the UI are ordinary files in `configs/` you can run from the terminal.
+Opens a browser page (default `http://127.0.0.1:8000`) with four tabs:
 
-Two more tabs round it out: **Replay** animates a finished run
-Packet-Tracer-style (task payloads travelling the links, results returning,
-queues growing, nodes failing and recovering, with play/pause/speed/scrub),
-and **Compare** runs several allocators / observability settings / seeds on
-the identical world and tabulates them side by side, with CSV export.
+- **Map** - the topology. Click a device to configure it in a popup, click a
+  link to change that pair's connection, drag things around, then Validate
+  and Run without leaving the page.
+- **Config** - every setting on one page, if you'd rather not click around
+  the map. A live YAML panel (the `YAML` button) shows exactly what your
+  clicks produce, and you can hand-edit it and watch the forms follow.
+- **Replay** - plays a finished run back: tasks appearing, the controller
+  being asked and answering, payloads crossing links, queues filling,
+  results returning, nodes failing and recovering. Click any device to see
+  what is happening inside it at that moment.
+- **Compare** - runs several allocators, observability settings, or seeds on
+  an identical world and tabulates them side by side, with CSV export.
 
-It writes these files into `logs/phase1_run01/`:
+Every dropdown is read live from the plug-in registries, so a newly
+registered allocator (or generator, network model, scenario...) appears in
+the UI on its own with its parameters. UI runs write the same log files as
+the CLI, under `logs/ui/<run_id>/`, and configs saved from the UI are
+ordinary files in `configs/` you can run from a terminal.
 
-- `allocation_log.csv` - one row per task: where it went, when it finished, did it meet its deadline.
-- `state_log.csv` - node queue lengths and how busy each node was over time.
-- `config_used.yaml` and `seed.txt` - so the exact same run can be reproduced later.
+### The command line
 
-### Optional flags
+```bash
+python experiments/run_phase1.py configs/phase1.yaml
+```
 
-A few things can be overridden from the command line without editing the config:
+Writes four files into the config's output directory:
+
+- `allocation_log.csv` - one row per task: when it arrived, where it went,
+  when it finished, whether it met its deadline.
+- `state_log.csv` - per-node queue length, utilisation, reliability and
+  failure state over time.
+- `config_used.yaml` and `seed.txt` - so the exact run can be reproduced.
+
+Overrides that don't require editing the config:
 
 ```bash
 python experiments/run_phase1.py configs/phase1.yaml --seed 7 --output-dir logs/my_run --quiet
 ```
-
-- `--seed N` - use a different random seed for this run.
-- `--output-dir DIR` - write output files somewhere else.
-- `--quiet` - skip the summary print (files are still written).
-
-### Editing the config
-
-`configs/phase1.yaml` is where the experiment settings live. Things you can change without touching any Python:
-
-- `seed` - controls all randomness. Same seed = same output every time.
-- `sim_duration` - how many simulated seconds the run goes for.
-- `dt` - size of one simulator tick, in seconds. Use `0.01` for real experiments (fine enough that network delays aren't distorted by tick rounding); `1.0` is fine for quick smoke tests with the `instant` network.
-- `nodes` - the list of compute nodes. Each has a type (`source` or `helper`), a CPU and memory capacity, and a tier label. You can add as many as you want, the simulator handles it. Optional heterogeneity knobs per node: `cpu_speed` (0.5 = half-speed device), `queue_limit` (full nodes are skipped; if nowhere has room the task is dropped and logged as lost), `accepts_task_types` (task suitability), `gpu_capacity`, `energy_cost_factor`.
-- `node_profiles` - optional named presets (like `sensor_class` or `edge_server`) so several nodes can share one spec via `profile: <name>`; per-node fields override the profile. See `configs/heterogeneous.yaml`.
-- For source nodes, the `source.generator` block picks the arrival pattern (currently `poisson` or `fixed_interval`) and its parameters. Any numeric task property (`cpu_demand`, `data_size`, ...) can be a plain number or a distribution like `{dist: uniform, low: 1, high: 3}`; a `task_mix` list gives weighted task-type profiles; and `rate` can be a number or a pattern like `{pattern: sinusoidal, base: 0.5, amplitude: 0.4, period: 120}` (or `piecewise` for bursts). See `configs/heterogeneous.yaml`.
-- `controllers` - which controller is in charge of which nodes, and which allocator it uses. The allocator's own settings (like `max_local_queue` for the scaffold rule) go inside its block. Optional: `observability` (`perfect` or `heartbeat` with `interval`/`report_delay` - how fresh the controller's view of node state is) and `scheduling_delay` (seconds each decision takes before dispatch).
-- `logging` - where output files go and how often to snapshot node state.
 
 ### Tests
 
@@ -103,26 +131,71 @@ python experiments/run_phase1.py configs/phase1.yaml --seed 7 --output-dir logs/
 python -m pytest
 ```
 
+## The configs
+
+| File | What it shows |
+|---|---|
+| `phase1.yaml` | Minimal baseline run. |
+| `heterogeneous.yaml` | The methodology's three-device scenario with the full realism stack switched on. |
+| `instability.yaml` | Node failure and reliability decay: tasks get lost. |
+| `trace_driven.yaml` | Real Azure workload and real 5G bandwidth (needs local datasets). |
+| `load_test.yaml` | Overload behaviour. |
+
+Things you can change without touching Python:
+
+- `seed` - all randomness flows from it. Same config + same seed = same output.
+- `sim_duration`, `dt` - how long to simulate, and the tick size. Use
+  `dt: 0.01` for real experiments; `1.0` is only for quick smoke tests.
+- `nodes` - each is a `source` or `helper` with CPU/memory capacity, and
+  optionally `cpu_speed`, `queue_limit`, `accepts_task_types`,
+  `gpu_capacity`, `energy_cost_factor`.
+- `node_profiles` - named hardware presets nodes adopt via `profile: <name>`;
+  fields set on a node override its profile.
+- `source.generator` - the arrival pattern and the task properties it
+  produces. Any numeric property can be a fixed number or a distribution;
+  `rate` can be a number or a pattern; `task_mix` gives weighted task types.
+- `controllers` - which controller manages which nodes, which allocator it
+  uses, how fresh its view is (`observability`), and `scheduling_delay`.
+- `network` - the default link profile plus per-pair overrides.
+- `scenarios` - scripted failures and reliability decay.
+
 ## Inside the repo
 
 ```
 src/                    # the simulator
-  models/                 # core data types: Task, EdgeNode, NodeState, AllocationOutcome
-  config/                 # YAML loading, validation, plugin registry
-  generation/             # task generators and their interface
-  controller/             # the controller and allocator strategies
-  simulation/             # clock, per-node processing, top-level Environment
+  models/                 # core types: Task, EdgeNode, NodeState, AllocationOutcome
+  config/                 # YAML loading, validation, plug-in registries
+  generation/             # task generators, distributions, arrival-rate patterns
+  controller/             # the controller, observability models, allocators
+  network/                # transmission delay models
+  simulation/             # clock, per-node processing, scenarios, Environment
   logging_utils/          # writes the CSV log files
 
-experiments/            # CLI entry points. run_phase1.py is the current one
+ui/                     # browser UI (Flask backend + static frontend)
+experiments/            # CLI entry point
+tools/                  # dataset converters, benchmark and evidence scripts
 configs/                # YAML experiment configs
-tests/                  # the pytest test suite
+tests/                  # the pytest suite
 logs/                   # simulator outputs (gitignored)
 ```
 
-The two interface files (`generation/base.py` and `controller/allocators/base.py`) are the plug-in seams. Every future generator or allocator implements one of these and gets registered by name.
+## How the plug-in system works
 
-## A few things worth knowing
+Every swappable part lives in a registry. Adding one is a class plus a
+one-line decorator, with no changes to the core:
 
-- Task generators and allocators are **swappable via the YAML config** - adding a new one is a Python class plus a one-line registration. That's how each later stage plugs in without rewriting anything.
-- All randomness goes through one master `seed`. Same config + same seed = same outputs every time.
+```python
+@allocators.register("my_strategy")
+class MyStrategyAllocator(Allocator):
+    def allocate(self, context): ...
+```
+
+Then in YAML: `allocator: {type: my_strategy}`. The same pattern covers
+generators, network models, distributions, arrival-rate patterns,
+observability models, and instability scenarios. The UI discovers new
+plug-ins automatically by inspecting these registries, so it never needs
+updating when one is added.
+
+That is the point of the architecture: the Bayesian allocator of Stage 9
+drops into the same slot the baselines use, and gets compared against them on
+a bit-for-bit identical world.

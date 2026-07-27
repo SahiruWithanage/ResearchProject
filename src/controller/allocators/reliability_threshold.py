@@ -13,7 +13,7 @@ class ReliabilityThresholdAllocator(Allocator):
     """Exclude candidates whose *observed* reliability_score is below
     ``min_reliability``, then behave like load_aware among the survivors.
 
-    Judged on the controller's (possibly stale) observed states — with
+    Judged on the controller's (possibly stale) observed states - with
     heartbeat observability the controller may keep trusting a node whose
     reliability collapsed after its last report, which is exactly the
     failure mode this baseline exposes. Falls back to all candidates when

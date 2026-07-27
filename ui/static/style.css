@@ -1,4 +1,4 @@
-/* Edge Simulator UI — plain CSS, no build step. */
+/* Edge Simulator UI - plain CSS, no build step. */
 
 :root {
   --bg: #f4f6f8;
@@ -39,20 +39,43 @@ header {
   flex-wrap: wrap;
 }
 header h1 { font-size: 1.05rem; margin: 0; white-space: nowrap; }
-#config-bar { display: flex; gap: 0.4rem; align-items: center; }
-#config-name { font-family: var(--mono); }
 
-nav#tabs { display: flex; gap: 0.25rem; margin-left: auto; }
+/* file toolbar: compact, grouped, visually distinct from the tabs */
+#config-bar {
+  display: flex;
+  gap: 0.15rem;
+  align-items: center;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.2rem 0.45rem;
+}
+#config-bar select { border: none; background: transparent; font-size: 0.85rem; }
+#config-bar button {
+  border: none;
+  background: transparent;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  border-radius: 5px;
+}
+#config-bar button:hover { color: var(--accent); background: var(--accent-soft); }
+#config-name { font-family: var(--mono); font-size: 0.8rem; padding-left: 0.4rem; }
+
+/* tabs: underline style - clearly navigation, not actions */
+nav#tabs { display: flex; gap: 0.9rem; margin-left: auto; }
 nav#tabs button {
-  border: 1px solid transparent;
+  border: none;
+  border-bottom: 2.5px solid transparent;
+  border-radius: 0;
   background: none;
-  padding: 0.4rem 0.9rem;
-  border-radius: 6px;
+  padding: 0.45rem 0.15rem;
   cursor: pointer;
   font-size: 0.95rem;
   color: var(--muted);
 }
-nav#tabs button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+nav#tabs button:hover { color: var(--text); border-color: transparent; }
+nav#tabs button.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
 
 /* ---- layout ---- */
 main#layout { flex: 1; display: flex; min-height: 0; }
@@ -159,21 +182,26 @@ button.danger:hover { border-color: var(--bad); color: var(--bad); }
 .dist-widget .mode button { padding: 0.1rem 0.5rem; font-size: 0.72rem; border-radius: 99px; }
 .dist-widget .mode button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
 
-/* ---- topology ---- */
+/* ---- topology / map ---- */
+#map-toolbar { margin-bottom: 0.6rem; }
+#map-toolbar .spacer { flex: 1; }
 #topology-box { margin-bottom: 0.9rem; }
 #topology-box svg {
   width: 100%;
-  height: 260px;
+  height: 470px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
 }
-#topology-box .hint { font-size: 0.72rem; color: var(--muted); margin-top: 0.2rem; }
+.hint { font-size: 0.75rem; color: var(--muted); margin: 0.25rem 0 0.5rem; }
+.topo-legend { font-size: 10px; fill: var(--muted); }
 .topo-node { cursor: grab; }
 .topo-node text { font-size: 11px; fill: var(--text); user-select: none; }
-.topo-link { stroke: #9aa7b4; stroke-width: 2; }
-.topo-link-label { font-size: 9px; fill: var(--muted); }
-.topo-manage { stroke: #c3cbd4; stroke-width: 1.2; stroke-dasharray: 4 4; }
+.topo-link { stroke: #9aa7b4; stroke-width: 2.5; }
+.topo-link-default { stroke: #d9e0e7; stroke-width: 1.5; stroke-dasharray: 2 4; }
+.topo-link-label { font-size: 9px; fill: var(--muted); pointer-events: none; user-select: none; }
+.topo-manage { stroke: #e7cfa0; stroke-width: 1.2; stroke-dasharray: 5 4; }
+.topo-hit { stroke: transparent; stroke-width: 14; cursor: pointer; pointer-events: stroke; }
 
 /* ---- run tab ---- */
 .result-box { border-radius: 8px; padding: 0.7rem 0.9rem; margin: 0.8rem 0; }
@@ -207,12 +235,56 @@ table.mini th { background: var(--bg); font-weight: 600; }
 /* ---- replay tab ---- */
 #replay-svg {
   width: 100%;
-  height: 340px;
+  height: 620px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
   margin-top: 0.6rem;
 }
-#tab-replay .hint { font-size: 0.75rem; color: var(--muted); margin-top: 0.3rem; }
 #replay-scrub { flex: 1; min-width: 12rem; accent-color: var(--accent); }
 #replay-time { font-family: var(--mono); font-size: 0.8rem; white-space: nowrap; }
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
+  align-items: center;
+  margin-top: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.legend > span { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+.legend svg { width: 20px; height: 14px; flex: none; }
+
+/* ---- modal: per-device config window (Packet-Tracer style) ---- */
+#modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+#modal[hidden] { display: none; }
+#modal-box {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: min(46rem, 92vw);
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.3);
+}
+#modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.55rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+#modal-head b { font-family: var(--mono); font-size: 0.95rem; }
+#modal-body { padding: 0.8rem 1rem; overflow-y: auto; }
+#modal-body > .card,
+#modal-body > .subcard { border: none; padding: 0; margin: 0; }

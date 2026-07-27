@@ -47,7 +47,7 @@ class EdgeNode:
 
         False when the task's type isn't accepted, its memory demand exceeds
         the node's total memory, or it demands GPU work on a GPU-less node.
-        (Whether the node currently has room is a runtime question —
+        (Whether the node currently has room is a runtime question -
         see ``NodeRuntime.has_room``.)
         """
         if (

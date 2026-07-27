@@ -19,7 +19,7 @@ class FixedIntervalGenerator(TaskGenerator):
 
     Useful for debugging and tests where you want predictable arrivals.
     Task *properties* may still be stochastic (distribution specs or a
-    ``task_mix``) — that requires an ``rng``; with constants only, the
+    ``task_mix``) - that requires an ``rng``; with constants only, the
     generator stays fully deterministic and needs none.
     """
 

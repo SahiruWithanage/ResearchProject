@@ -8,7 +8,7 @@ Units (pinned; see resources/DELAY_MODEL.md):
 
 Jitter is ON by default with realistic per-profile values (wired links are
 steady, wireless ones wobble). A seeded rng is therefore required whenever
-any reachable link has jitter > 0 — the constructor fails fast if it is
+any reachable link has jitter > 0 - the constructor fails fast if it is
 missing. Set ``jitter_s: 0`` in a profile override to silence a link.
 """
 
@@ -61,7 +61,7 @@ class FluidLinkNetworkModel(NetworkModel):
             ``profile`` or explicit ``bandwidth_bps`` / ``base_latency_s``.
         rng: Seeded generator for jitter. Required if any reachable link
             (the default profile or an explicit link override) has
-            jitter > 0 — which is the case for the built-in wireless
+            jitter > 0 - which is the case for the built-in wireless
             profiles unless overridden.
     """
 
@@ -82,7 +82,7 @@ class FluidLinkNetworkModel(NetworkModel):
         self._validate_rng_requirement()
 
     # ------------------------------------------------------------------
-    # Realized delays (consume randomness — call once per transfer)
+    # Realized delays (consume randomness - call once per transfer)
     # ------------------------------------------------------------------
 
     def uplink_delay(
@@ -104,7 +104,7 @@ class FluidLinkNetworkModel(NetworkModel):
         return self._realized_delay(executor_id, source_id, task.result_size, t)
 
     # ------------------------------------------------------------------
-    # Expected delays (deterministic — free to call any number of times)
+    # Expected delays (deterministic - free to call any number of times)
     # ------------------------------------------------------------------
 
     def expected_uplink_delay(

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-import src.network  # noqa: F401 — register network models
+import src.network  # noqa: F401 - register network models
 from src.config import (
     SimulationConfig,
     allocators,
@@ -21,7 +21,7 @@ from src.simulation.clock import Clock
 from src.simulation.estimates import CompletionEstimator
 from src.simulation.processing import NodeRuntime
 from src.config.factory import scenarios as scenario_registry
-from src.simulation.scenarios import Scenario  # noqa: F401 — registers scenarios
+from src.simulation.scenarios import Scenario  # noqa: F401 - registers scenarios
 from src.simulation.transit import TransitQueue
 
 
@@ -210,7 +210,7 @@ class Environment:
         """Record a compute completion; start the result's trip home if any.
 
         The deadline is judged at compute completion unless a result payload
-        must travel back (remote executor and ``result_size`` > 0) — then
+        must travel back (remote executor and ``result_size`` > 0) - then
         judgement waits for the downlink arrival (:meth:`_deliver_returns`).
         """
         owner = self._controller_for_task(task)

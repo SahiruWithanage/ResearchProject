@@ -1,6 +1,6 @@
 """Flask backend: the UI's window onto the simulator.
 
-Thin by design — every endpoint delegates to the existing pipeline:
+Thin by design - every endpoint delegates to the existing pipeline:
 option lists come from the registries (ui.introspect), validation is the
 loader's own parse_config plus an Environment build, running is
 Environment.run(), and every UI run writes the standard four log files
@@ -9,15 +9,17 @@ via RunLogger so results stay CLI-compatible.
 
 from __future__ import annotations
 
+import io
 import re
 import sys
 import threading
 import time
+import zipfile
 from pathlib import Path
 from typing import Any
 
 import yaml
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_file
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -145,7 +147,7 @@ def save_config(name: str):
 
 
 # ---------------------------------------------------------------------------
-# YAML bridge — the frontend never parses/serializes YAML itself, so the
+# YAML bridge - the frontend never parses/serializes YAML itself, so the
 # panel and the config loader can never disagree on syntax.
 # ---------------------------------------------------------------------------
 
@@ -277,6 +279,35 @@ def run_timeline(run_id: str):
             "run_id": run_id,
             "timeline": build_timeline(entry["result"], entry["raw_config"]),
         }
+    )
+
+
+@app.route("/api/run/<run_id>/download")
+def run_download(run_id: str):
+    """The whole run bundle as a zip: both CSVs, the config, the seed.
+
+    Exactly the four files the CLI writes, so an exported run is a complete,
+    reproducible record - not a UI-specific summary.
+    """
+    with _RUNS_LOCK:
+        entry = _RUNS.get(run_id)
+    if entry is None or entry.get("status") != "done":
+        return _error(f"no run {run_id!r} in this server session", status=404)
+    log_dir = Path(entry["log_dir"])
+    if not log_dir.exists():
+        return _error(f"log directory is gone: {log_dir}", status=404)
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for path in sorted(log_dir.iterdir()):
+            if path.is_file():
+                zf.write(path, arcname=f"{run_id}/{path.name}")
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype="application/zip",
+        as_attachment=True,
+        download_name=f"run_{run_id}.zip",
     )
 
 

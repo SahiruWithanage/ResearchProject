@@ -74,6 +74,13 @@ def _read_lines(path: Path) -> list[str]:
     return path.read_text(encoding="utf-8").splitlines()
 
 
+def _rows(path: Path) -> list[dict[str, str]]:
+    """Data rows keyed by column name - survives columns being appended."""
+    lines = _read_lines(path)
+    header = lines[0].split(",")
+    return [dict(zip(header, line.split(","))) for line in lines[1:]]
+
+
 # ===========================================================================
 # Directory and file presence
 # ===========================================================================
@@ -121,7 +128,7 @@ def test_allocation_log_has_explicit_header(tmp_path: Path, raw_config) -> None:
     logger.write_run(result, cfg, raw)
     header = _read_lines(logger.allocation_log_path)[0]
     expected = (
-        "task_id,decision_time,allocator_type,selected_node,"
+        "task_id,arrival_time,decision_time,allocator_type,selected_node,"
         "estimated_completion_time,transfer_start,transfer_end,compute_start,"
         "actual_completion_time,return_end,deadline_met,task_lost"
     )
@@ -199,14 +206,30 @@ def test_allocation_log_none_fields_become_empty_strings(tmp_path: Path) -> None
     )
     logger = RunLogger(tmp_path / "run")
     logger.write_run(result, cfg, raw_config={})
-    row = _read_lines(logger.allocation_log_path)[1]
-    parts = row.split(",")
+    row = _rows(logger.allocation_log_path)[0]
     # actual_completion_time, return_end, and deadline_met are empty;
     # task_lost is False.
-    assert parts[-4] == ""
-    assert parts[-3] == ""
-    assert parts[-2] == ""
-    assert parts[-1] == "False"
+    assert row["actual_completion_time"] == ""
+    assert row["return_end"] == ""
+    assert row["deadline_met"] == ""
+    assert row["task_lost"] == "False"
+
+
+def test_allocation_log_records_arrival_before_decision(
+    tmp_path: Path, raw_config
+) -> None:
+    """Arrival is when the generator emitted the task; the controller decides
+    at the next tick boundary, so arrival <= decision, within one dt."""
+    result, cfg, raw = _run(raw_config)
+    logger = RunLogger(tmp_path / "run")
+    logger.write_run(result, cfg, raw)
+    rows = _rows(logger.allocation_log_path)
+    assert rows, "expected at least one task"
+    for row in rows:
+        arrival = float(row["arrival_time"])
+        decision = float(row["decision_time"])
+        assert arrival <= decision
+        assert decision - arrival <= cfg.dt + 1e-9
 
 
 def test_allocation_log_deadline_met_serialised_explicitly(tmp_path: Path) -> None:
@@ -234,8 +257,7 @@ def test_allocation_log_deadline_met_serialised_explicitly(tmp_path: Path) -> No
     logger = RunLogger(tmp_path / "run")
     logger.write_run(result, _stub_config(), raw_config={})
 
-    rows = _read_lines(logger.allocation_log_path)[1:]
-    deadline_cols = [row.split(",")[-2] for row in rows]
+    deadline_cols = [row["deadline_met"] for row in _rows(logger.allocation_log_path)]
     assert deadline_cols == ["True", "False"]
 
 

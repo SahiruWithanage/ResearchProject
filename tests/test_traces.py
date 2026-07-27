@@ -160,7 +160,7 @@ def test_trace_bandwidth_drives_transfer_time(tmp_path: Path) -> None:
 def test_trace_bandwidth_floor_prevents_infinite_transfer(tmp_path: Path) -> None:
     net = _net(tmp_path, min_bandwidth_bps=10_000.0)
     d = net.expected_uplink_delay("n1", "n2", _task(data_size=1000.0), 15.0)
-    # 1000 B over the 10 kbit/s floor = 0.8 s — finite, not infinite.
+    # 1000 B over the 10 kbit/s floor = 0.8 s - finite, not infinite.
     assert d == pytest.approx(0.8)
 
 

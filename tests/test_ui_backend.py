@@ -2,7 +2,7 @@
 
 The headline guarantee tested here: the UI's form schema mirrors the
 plug-and-play registries automatically, so registering a new plugin makes
-it appear in the UI with its parameters — no UI edits.
+it appear in the UI with its parameters - no UI edits.
 """
 
 from __future__ import annotations
@@ -322,6 +322,7 @@ def test_timeline_reconstructs_task_lifecycles(client):
     tl = body["timeline"]
     assert tl["duration"] == pytest.approx(5.0)
     assert {n["id"] for n in tl["nodes"]} == {"s", "h"}
+    assert tl["controllers"][0]["observability"]["type"] == "perfect"
     assert len(tl["tasks"]) == 5
     first = tl["tasks"][0]
     assert first["source"] == "s"  # derived from the task id
@@ -330,6 +331,30 @@ def test_timeline_reconstructs_task_lifecycles(client):
     for rows in tl["states"].values():  # snapshot rows sorted by time
         times = [r[0] for r in rows]
         assert times == sorted(times)
+
+
+def test_run_download_returns_full_log_bundle(client):
+    import io
+    import zipfile
+
+    run_id = client.post("/api/run", json={"yaml": TINY_YAML}).get_json()["run_id"]
+    resp = client.get(f"/api/run/{run_id}/download")
+    assert resp.status_code == 200
+    assert resp.mimetype == "application/zip"
+    names = zipfile.ZipFile(io.BytesIO(resp.data)).namelist()
+    assert sorted(names) == sorted(
+        f"{run_id}/{n}"
+        for n in (
+            "allocation_log.csv",
+            "state_log.csv",
+            "config_used.yaml",
+            "seed.txt",
+        )
+    )
+
+
+def test_run_download_unknown_run_is_404(client):
+    assert client.get("/api/run/nope/download").status_code == 404
 
 
 def test_timeline_unknown_run_is_404(client):

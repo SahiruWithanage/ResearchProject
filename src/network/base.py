@@ -12,14 +12,14 @@ class NetworkModel(ABC):
 
     Uplink carries the task payload (``data_size`` bytes) from the source
     to the executor; downlink carries the result (``result_size`` bytes)
-    from the executor back to the source. Links may be asymmetric — the
+    from the executor back to the source. Links may be asymmetric - the
     two directions resolve their specs independently.
 
     The method pairs split *estimation* from *realization*:
 
     - The ``expected_*`` methods are what allocators (via the
       CompletionEstimator) may call as often as they like. They MUST be
-      deterministic and MUST NOT consume randomness — otherwise the number
+      deterministic and MUST NOT consume randomness - otherwise the number
       of RNG draws would depend on which allocator is running, breaking
       same-seed comparability between allocators.
     - ``uplink_delay`` / ``downlink_delay`` are realized delays, each

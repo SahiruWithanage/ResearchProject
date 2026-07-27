@@ -29,7 +29,7 @@ from src.config.factory import rate_patterns
 class RatePattern(ABC):
     """Contract: instantaneous ``rate(t)`` plus a finite ``max_rate``.
 
-    ``max_rate`` bounds the thinning algorithm in the Poisson generator —
+    ``max_rate`` bounds the thinning algorithm in the Poisson generator -
     ``rate(t) <= max_rate()`` must hold for all t.
     """
 

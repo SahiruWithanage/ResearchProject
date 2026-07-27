@@ -12,7 +12,7 @@ network:
   type: fluid_link
   default_profile: wifi
   # Link overrides: only needed when THIS hop should differ from default.
-  # Example: force Wi-Fi to the helper (same as default here — shown for clarity):
+  # Example: force Wi-Fi to the helper (same as default here - shown for clarity):
   links:
     - from: node_1
       to: node_3

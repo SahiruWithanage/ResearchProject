@@ -99,7 +99,7 @@ class NormalDistribution(Distribution):
 class LogNormalDistribution(Distribution):
     """numpy semantics: ``mean``/``sigma`` describe the underlying normal.
 
-    Handy fact: the *median* of the result is ``e ** mean`` — e.g.
+    Handy fact: the *median* of the result is ``e ** mean`` - e.g.
     ``mean = 11.0`` gives a median around 60 000.
     """
 

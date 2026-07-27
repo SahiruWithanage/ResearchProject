@@ -17,9 +17,9 @@ from src.models import Task
 class PoissonGenerator(TaskGenerator):
     """Stochastic task generator with Poisson arrivals.
 
-    ``rate`` is either a number (homogeneous Poisson — the count in each
+    ``rate`` is either a number (homogeneous Poisson - the count in each
     ``emit`` window is Poisson(rate * window), placed uniformly) or a rate
-    pattern spec (``sinusoidal``, ``piecewise``, ...) — then arrivals form
+    pattern spec (``sinusoidal``, ``piecewise``, ...) - then arrivals form
     a non-homogeneous Poisson process, realized by *thinning*: candidates
     are drawn at the pattern's max rate and each is kept with probability
     ``rate(t) / max_rate``.

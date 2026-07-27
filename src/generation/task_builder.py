@@ -23,7 +23,7 @@ can emit a weighted mix of task types via ``task_mix``:
 
 Profile fields default to the generator-level values, so the mix only
 lists what differs. Constant-only setups consume **no randomness** for
-properties — old configs keep byte-identical task streams.
+properties - old configs keep byte-identical task streams.
 """
 
 from __future__ import annotations

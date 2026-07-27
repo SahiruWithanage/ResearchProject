@@ -3,7 +3,7 @@
 Every plugin registers itself with explicit keyword parameters and
 defaults, so `inspect.signature` is the single source of truth for the
 UI's forms. Register a new allocator (or generator, network model, ...)
-and it appears in the UI with its parameters — no UI edits.
+and it appears in the UI with its parameters - no UI edits.
 
 Two wrinkles handled here:
 - some parameters are injected by the Environment, never user-set
@@ -20,7 +20,7 @@ import inspect
 import math
 from typing import Any
 
-import src.simulation.environment  # noqa: F401 — triggers every @register
+import src.simulation.environment  # noqa: F401 - triggers every @register
 from src.config.factory import (
     Registry,
     allocators,
@@ -39,7 +39,7 @@ from src.generation.task_builder import TaskBuilder
 from src.network.fluid_link import _BUILTIN_PROFILES
 from src.network.trace_fluid_link import _BandwidthTrace
 
-# Parameters the Environment injects at build time — never user-editable.
+# Parameters the Environment injects at build time - never user-editable.
 _HIDDEN_PARAMS: dict[str, frozenset[str]] = {
     "generators": frozenset({"source_node_id", "rng"}),
     # default_profile / profiles / links live in the dedicated `network:`
@@ -155,7 +155,7 @@ def _registry_schema(
 
 def _composite_schemas() -> dict[str, Any]:
     """Item schemas for list-valued params, introspected from the classes
-    that consume the items — so list editors are not hardcoded either.
+    that consume the items - so list editors are not hardcoded either.
 
     Keyed registry -> plugin ("*" = any plugin of that registry) -> param.
     """

@@ -4,7 +4,7 @@ Same workload at every dt: 500 simulated seconds, two overloaded sources
 (Poisson 0.8/s, cpu_demand 2.0, data_size 500 KB) offloading over wifi to
 one 4-worker helper, load_aware allocator. Multiple seeds per dt because
 changing dt re-chunks the Poisson draws, so individual runs are not
-path-comparable across dt — only averages are.
+path-comparable across dt - only averages are.
 """
 
 from __future__ import annotations

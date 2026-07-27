@@ -23,8 +23,8 @@ The trace CSV needs columns ``t`` (seconds, ascending from 0) and
 Links without a trace behave exactly like ``fluid_link``. Base latency and
 jitter still come from the resolved profile/link spec.
 
-Delays remain a pure function of (link, t) — no randomness beyond the
-usual jitter — so estimates stay deterministic and same-seed runs are
+Delays remain a pure function of (link, t) - no randomness beyond the
+usual jitter - so estimates stay deterministic and same-seed runs are
 identical across allocators.
 """
 

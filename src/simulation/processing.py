@@ -28,7 +28,7 @@ class NodeRuntime:
       only if its ``memory_demand`` fits in the remaining memory; if the
       head task doesn't fit, it waits (head-of-line, keeps FIFO honest).
     - ``queue_limit`` (if set) caps active + waiting; see :meth:`has_room`.
-      Enforced at *allocation* time by the Controller, not by ``enqueue`` —
+      Enforced at *allocation* time by the Controller, not by ``enqueue`` -
       tasks already in transit are accepted on arrival even if the node
       filled up meanwhile (the consequences of stale decisions are a
       Stage 8 topic).
@@ -74,7 +74,7 @@ class NodeRuntime:
 
     def fail(self) -> list[Task]:
         """Crash the node. Evicts and returns every held task (they are
-        lost — a crashed machine doesn't keep its queue)."""
+        lost - a crashed machine doesn't keep its queue)."""
         self.failure_state = "failed"
         evicted = [entry.task for entry in self._active] + list(self._queue)
         self._active.clear()
