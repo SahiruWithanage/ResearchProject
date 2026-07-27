@@ -74,11 +74,37 @@ def test_schema_covers_all_seven_registries():
 
 def test_schema_reads_params_from_signatures():
     schema = build_schema()
-    ws = schema["registries"]["allocators"]["weighted_score"]["params"]
-    assert ws["w_delay"] == {"type": "number", "required": False, "default": 1.0}
+    ws = schema["registries"]["allocators"]["weighted_score"]["params"]["w_delay"]
+    assert ws["type"] == "number"
+    assert ws["required"] is False
+    assert ws["default"] == 1.0
     hb = schema["registries"]["observability_models"]["heartbeat"]["params"]
     assert hb["interval"]["required"] is True
     assert hb["report_delay"]["default"] == 0.0
+
+
+def test_schema_carries_plain_language_help():
+    """Every plug-in and its parameters need help text, so someone who has
+    not read the code can still tell what an option does."""
+    schema = build_schema()
+    for kind, plugins in schema["registries"].items():
+        for name, entry in plugins.items():
+            if name.startswith("test_"):  # dummies registered by other tests
+                continue
+            assert entry["help"], f"{kind}/{name} has no plain-language description"
+            for param, spec in entry["params"].items():
+                assert spec.get("help"), f"{kind}/{name}.{param} has no help text"
+    # structural (non-plug-in) fields too
+    for key in ("seed", "dt", "cpu_speed", "queue_limit", "scheduling_delay"):
+        assert schema["field_help"].get(key)
+
+
+def test_composite_item_fields_have_help():
+    comp = build_schema()["composites"]
+    for spec in comp["generators"]["*"]["task_mix"].values():
+        assert spec.get("help")
+    for spec in comp["network_models"]["trace_fluid_link"]["traces"].values():
+        assert spec.get("help")
 
 
 def test_schema_hides_environment_injected_params():
@@ -300,6 +326,41 @@ def test_compare_observability_none_restores_perfect(client):
         },
     )
     assert resp.get_json()["ok"] is True
+
+
+def test_compare_rejects_seeds_given_as_a_string(client):
+    """"724" must not be iterated into the seeds 7, 2 and 4."""
+    resp = client.post(
+        "/api/compare",
+        json={
+            "yaml": TINY_YAML,
+            "variants": [{"label": "x", "allocator": {"type": "load_aware"}}],
+            "seeds": "724",
+        },
+    )
+    assert resp.status_code == 400
+    assert "list of integers" in resp.get_json()["error"]
+
+
+def test_compare_rejects_non_integer_seeds(client):
+    resp = client.post(
+        "/api/compare",
+        json={
+            "yaml": TINY_YAML,
+            "variants": [{"label": "x", "allocator": {"type": "load_aware"}}],
+            "seeds": [1.5],
+        },
+    )
+    assert resp.status_code == 400
+
+
+def test_compare_rejects_non_object_variants(client):
+    """Previously raised AttributeError and returned a 500."""
+    resp = client.post(
+        "/api/compare", json={"yaml": TINY_YAML, "variants": ["load_aware"]}
+    )
+    assert resp.status_code == 400
+    assert "variant" in resp.get_json()["error"]
 
 
 def test_compare_enforces_cell_cap(client):

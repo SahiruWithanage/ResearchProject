@@ -139,6 +139,32 @@ body.yaml-open aside#yaml-panel { display: flex; }
 .field > label { font-size: 0.72rem; color: var(--muted); }
 .field .req { color: var(--bad); }
 
+/* "?" marker: the field carries a title tooltip explaining the setting */
+.helpmark {
+  display: inline-block;
+  margin-left: 0.3rem;
+  width: 0.85rem;
+  height: 0.85rem;
+  line-height: 0.85rem;
+  text-align: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.62rem;
+  font-weight: 700;
+  cursor: help;
+}
+.field[title]:hover > label { color: var(--accent); }
+
+/* one-line description of the plug-in currently selected in a dropdown */
+.plugin-note {
+  font-size: 0.72rem;
+  color: var(--muted);
+  line-height: 1.35;
+  margin-top: 0.25rem;
+  max-width: 34rem;
+}
+
 input, select, textarea, button {
   font: inherit;
   color: inherit;
@@ -194,7 +220,6 @@ button.danger:hover { border-color: var(--bad); color: var(--bad); }
   border-radius: 8px;
 }
 .hint { font-size: 0.75rem; color: var(--muted); margin: 0.25rem 0 0.5rem; }
-.topo-legend { font-size: 10px; fill: var(--muted); }
 .topo-node { cursor: grab; }
 .topo-node text { font-size: 11px; fill: var(--text); user-select: none; }
 .topo-link { stroke: #9aa7b4; stroke-width: 2.5; }
@@ -254,7 +279,8 @@ table.mini th { background: var(--bg); font-weight: 600; }
   color: var(--muted);
 }
 .legend > span { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
-.legend svg { width: 20px; height: 14px; flex: none; }
+/* must match the icons' viewBox (26x20) or they scale back down */
+.legend svg { width: 26px; height: 20px; flex: none; }
 
 /* ---- modal: per-device config window (Packet-Tracer style) ---- */
 #modal {

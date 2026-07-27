@@ -113,29 +113,101 @@ function rebuild() {
   dirty();
 }
 
-yamlText.addEventListener(
-  "input",
-  debounce(async () => {
-    const r = await api("/api/yaml/parse", { yaml: yamlText.value });
-    if (r.ok) {
-      cfg = r.data;
-      renderBuild();
-      drawTopology();
-      setYamlStatus(true, "parsed - form updated");
-    } else {
-      setYamlStatus(false, r.error);
-    }
-  }, 500)
-);
+// Set the instant an edit is typed, cleared once that text is parsed into
+// cfg. Anything that acts on the config must flush this first (see
+// syncedYaml) or it would silently act on the pre-edit config.
+let yamlPending = false;
+
+async function parseYamlPanel() {
+  const r = await api("/api/yaml/parse", { yaml: yamlText.value });
+  if (r.ok) {
+    cfg = r.data;
+    yamlPending = false;
+    renderBuild();
+    drawTopology();
+    setYamlStatus(true, "parsed - form updated");
+    return true;
+  }
+  setYamlStatus(false, r.error);
+  return false;
+}
+
+yamlText.addEventListener("input", () => {
+  yamlPending = true;
+});
+yamlText.addEventListener("input", debounce(parseYamlPanel, 500));
+
+/**
+ * The authoritative YAML for the current state, used by every action that
+ * acts on the config (validate, run, compare, save).
+ *
+ * Both directions of the form/YAML mirror are debounced, so without this
+ * flush an action fired within that window would use stale content: run
+ * would silently use the pre-edit config, and save could write a file that
+ * differs from what was just run. Returns null when the panel text is not
+ * valid YAML, in which case the caller must abort.
+ */
+async function syncedYaml() {
+  if (yamlPending && !(await parseYamlPanel())) return null;
+  const r = await api("/api/yaml/dump", { data: cfg });
+  return r.ok ? r.yaml : null;
+}
 
 /* ------------------------------------------------------------------ *
  * generic widgets
  * ------------------------------------------------------------------ */
 
-function field(labelText, inputEl, { required = false, wide = false } = {}) {
+/**
+ * One labelled input. `help` is plain-language text from the backend
+ * (ui/help.py); when present the label gets a "?" marker and the whole
+ * field shows the text on hover, so someone who has never seen the config
+ * format can still tell what a setting does.
+ */
+function field(labelText, inputEl, { required = false, wide = false, help = "" } = {}) {
   const lab = el("label", { text: labelText });
   if (required) lab.append(el("span", { class: "req", text: " *" }));
-  return el("div", { class: "field" + (wide ? " wide" : "") }, lab, inputEl);
+  if (help) lab.append(el("span", { class: "helpmark", text: "?" }));
+  const wrap = el("div", { class: "field" + (wide ? " wide" : ""), title: help || null },
+    lab, inputEl);
+  return wrap;
+}
+
+/** Look up help for a plug-in parameter, falling back to generic text. */
+function paramHelp(spec, name) {
+  if (spec && spec.help) return spec.help;
+  return (schema.field_help && schema.field_help[name]) || "";
+}
+
+/**
+ * A dropdown of plug-ins plus a line explaining the one currently chosen,
+ * and a tooltip on each option, so the choice is understandable without
+ * knowing the codebase.
+ */
+function pluginChooser(labelText, registryName, current, onChange, { help = "" } = {}) {
+  const registry = schema.registries[registryName];
+  const sel = el("select");
+  for (const name of Object.keys(registry)) {
+    const opt = el("option", { value: name, text: name });
+    const text = registry[name].help || registry[name].doc || "";
+    if (text) opt.setAttribute("title", text);
+    sel.append(opt);
+  }
+  if (current) sel.value = current;
+  const note = el("div", { class: "plugin-note" });
+  const describe = () => {
+    const entry = registry[sel.value];
+    note.textContent = (entry && (entry.help || entry.doc)) || "";
+  };
+  describe();
+  sel.addEventListener("change", () => {
+    describe();
+    onChange(sel.value);
+  });
+  const wrap = el("div", { class: "field wide", title: help || null });
+  const lab = el("label", { text: labelText });
+  if (help) lab.append(el("span", { class: "helpmark", text: "?" }));
+  wrap.append(lab, sel, note);
+  return wrap;
 }
 
 function numInput(value, onChange, { placeholder = "", integer = false } = {}) {
@@ -208,16 +280,19 @@ function jsonInput(value, onChange) {
  * ctx: {registry, pluginType, distFields, rateFields}
  */
 function paramWidget(name, spec, obj, ctx) {
+  const help = paramHelp(spec, name);
   if (ctx.rateFields && ctx.rateFields.includes(name)) {
     return field(name, specWidget(name, obj, "pattern", "rate_patterns"), {
       required: spec.required,
       wide: true,
+      help,
     });
   }
   if (ctx.distFields && ctx.distFields.includes(name)) {
     return field(name, specWidget(name, obj, "dist", "distributions"), {
       required: spec.required,
       wide: true,
+      help,
     });
   }
   const comp =
@@ -229,7 +304,7 @@ function paramWidget(name, spec, obj, ctx) {
     return field(name, selInput(nodeIds(), obj[name], (v) => {
       obj[name] = v;
       dirty();
-    }), { required: spec.required });
+    }), { required: spec.required, help });
   }
 
   let input;
@@ -252,9 +327,9 @@ function paramWidget(name, spec, obj, ctx) {
       break;
     default:
       input = jsonInput(obj[name], set);
-      return field(name, input, { required: spec.required, wide: true });
+      return field(name, input, { required: spec.required, wide: true, help });
   }
-  return field(name, input, { required: spec.required });
+  return field(name, input, { required: spec.required, help });
 }
 
 function paramsBlock(schemaParams, obj, ctx) {
@@ -321,14 +396,17 @@ function specWidget(name, obj, key, registryName) {
     } else {
       const spec = obj[name];
       wrap.append(
-        selInput(Object.keys(registry), spec[key], (type) => {
+        pluginChooser(label, registryName, spec[key], (type) => {
           obj[name] = { [key]: type }; // params of the old type don't apply
           render();
           dirty();
         })
       );
       wrap.append(
-        paramsBlock(registry[spec[key]]?.params, spec, { registry: registryName })
+        paramsBlock(registry[spec[key]]?.params, spec, {
+          registry: registryName,
+          pluginType: spec[key],
+        })
       );
     }
   }
@@ -420,18 +498,20 @@ function simCard() {
   cfg.logging = cfg.logging || {};
   const card = el("div", { class: "card" }, el("h2", { text: "Simulation" }));
   const fields = el("div", { class: "fields" });
+  const fh = (n) => (schema.field_help && schema.field_help[n]) || "";
   fields.append(
-    field("seed", numInput(cfg.seed, (v) => { setOrDelete(cfg, "seed", v); dirty(); }, { integer: true }), { required: true }),
-    field("sim_duration (s)", numInput(cfg.sim_duration, (v) => { setOrDelete(cfg, "sim_duration", v); dirty(); }), { required: true }),
-    field("dt (s)", numInput(cfg.dt, (v) => { setOrDelete(cfg, "dt", v); dirty(); }, { placeholder: "0.01" }), { required: true }),
-    field("logging output_dir", txtInput(cfg.logging.output_dir, (v) => { setOrDelete(cfg.logging, "output_dir", v); dirty(); }), { required: true, wide: true }),
-    field("log_state_every (s)", numInput(cfg.logging.log_state_every, (v) => { setOrDelete(cfg.logging, "log_state_every", v); dirty(); }))
+    field("seed", numInput(cfg.seed, (v) => { setOrDelete(cfg, "seed", v); dirty(); }, { integer: true }), { required: true, help: fh("seed") }),
+    field("sim_duration (s)", numInput(cfg.sim_duration, (v) => { setOrDelete(cfg, "sim_duration", v); dirty(); }), { required: true, help: fh("sim_duration") }),
+    field("dt (s)", numInput(cfg.dt, (v) => { setOrDelete(cfg, "dt", v); dirty(); }, { placeholder: "0.01" }), { required: true, help: fh("dt") }),
+    field("logging output_dir", txtInput(cfg.logging.output_dir, (v) => { setOrDelete(cfg.logging, "output_dir", v); dirty(); }), { required: true, wide: true, help: fh("output_dir") }),
+    field("log_state_every (s)", numInput(cfg.logging.log_state_every, (v) => { setOrDelete(cfg.logging, "log_state_every", v); dirty(); }), { help: fh("log_state_every") })
   );
   card.append(fields);
   return card;
 }
 
 function nodeFieldWidget(obj, name) {
+  const help = (schema.field_help && schema.field_help[name]) || "";
   const set = (v) => {
     setOrDelete(obj, name, v);
     dirty();
@@ -446,15 +526,15 @@ function nodeFieldWidget(obj, name) {
       },
       { placeholder: "all types" }
     );
-    return field(name, input, { wide: true });
+    return field(name, input, { wide: true, help });
   }
   if (name === "tier") {
-    return field(name, txtInput(obj[name], set, { placeholder: "edge" }));
+    return field(name, txtInput(obj[name], set, { placeholder: "edge" }), { help });
   }
   if (name === "queue_limit") {
-    return field(name, numInput(obj[name], set, { integer: true, placeholder: "unlimited" }));
+    return field(name, numInput(obj[name], set, { integer: true, placeholder: "unlimited" }), { help });
   }
-  return field(name, numInput(obj[name], set));
+  return field(name, numInput(obj[name], set), { help });
 }
 
 function profilesCard() {
@@ -522,18 +602,15 @@ function generatorSection(node) {
   const registry = schema.registries.generators;
 
   wrap.append(
-    field(
-      "generator",
-      selInput(Object.keys(registry), gen.type, (type) => {
-        const fresh = { type };
-        // carry over params the new generator also understands
-        for (const k of Object.keys(gen)) {
-          if (k !== "type" && registry[type].params[k] !== undefined) fresh[k] = gen[k];
-        }
-        node.source.generator = fresh;
-        rebuild();
-      })
-    )
+    pluginChooser("generator", "generators", gen.type, (type) => {
+      const fresh = { type };
+      // carry over params the new generator also understands
+      for (const k of Object.keys(gen)) {
+        if (k !== "type" && registry[type].params[k] !== undefined) fresh[k] = gen[k];
+      }
+      node.source.generator = fresh;
+      rebuild();
+    }, { help: "How this device decides when to create new tasks." })
   );
   wrap.append(
     paramsBlock(registry[gen.type]?.params, gen, {
@@ -589,6 +666,62 @@ function renameNode(oldId, newId) {
     delete layout[`node:${oldId}`];
     localStorage.setItem(layoutKey(), JSON.stringify(layout));
   }
+  rebuild();
+}
+
+/**
+ * Delete a node and every reference to it. Splicing it out of cfg.nodes
+ * alone leaves its name in controller `manages` lists, link overrides,
+ * traces and scenario targets, which only surfaces later as a confusing
+ * "unknown node" error at validation time.
+ */
+function removeNode(index) {
+  const node = (cfg.nodes || [])[index];
+  if (!node) return;
+  const id = node.id;
+  cfg.nodes.splice(index, 1);
+
+  for (const ctrl of cfg.controllers || []) {
+    if (Array.isArray(ctrl.manages)) {
+      ctrl.manages = ctrl.manages.filter((m) => m !== id);
+    }
+  }
+  if (cfg.network) {
+    if (Array.isArray(cfg.network.links)) {
+      cfg.network.links = cfg.network.links.filter(
+        (l) => l.from !== id && l.to !== id
+      );
+      if (cfg.network.links.length === 0) delete cfg.network.links;
+    }
+    const traces = cfg.network.params && cfg.network.params.traces;
+    if (Array.isArray(traces)) {
+      cfg.network.params.traces = traces.filter(
+        (t) => t.from !== id && t.to !== id
+      );
+      if (cfg.network.params.traces.length === 0) delete cfg.network.params.traces;
+    }
+  }
+  if (Array.isArray(cfg.scenarios)) {
+    cfg.scenarios = cfg.scenarios.filter((s) => s.node !== id);
+    if (cfg.scenarios.length === 0) delete cfg.scenarios;
+  }
+  delete layout[`node:${id}`];
+  localStorage.setItem(layoutKey(), JSON.stringify(layout));
+  closeModal();
+  rebuild();
+}
+
+function removeController(index) {
+  const ctrl = (cfg.controllers || [])[index];
+  if (!ctrl) return;
+  const id = ctrl.id;
+  cfg.controllers.splice(index, 1);
+  for (const other of cfg.controllers || []) {
+    if (other.parent === id) other.parent = null;
+  }
+  delete layout[`ctrl:${id}`];
+  localStorage.setItem(layoutKey(), JSON.stringify(layout));
+  closeModal();
   rebuild();
 }
 
@@ -655,10 +788,7 @@ function nodeSubcard(node, i) {
       el("button", {
         class: "tiny danger",
         text: "remove",
-        onclick: () => {
-          cfg.nodes.splice(i, 1);
-          rebuild();
-        },
+        onclick: () => removeNode(i),
       })
     );
     sub.append(head);
@@ -734,10 +864,7 @@ function controllerSubcard(ctrl, i) {
       el("button", {
         class: "tiny danger",
         text: "remove",
-        onclick: () => {
-          cfg.controllers.splice(i, 1);
-          rebuild();
-        },
+        onclick: () => removeController(i),
       })
     );
     sub.append(head);
@@ -763,13 +890,10 @@ function controllerSubcard(ctrl, i) {
     ctrl.allocator = ctrl.allocator || { type: "load_aware" };
     const allocReg = schema.registries.allocators;
     sub.append(
-      field(
-        "strategy",
-        selInput(Object.keys(allocReg), ctrl.allocator.type, (type) => {
-          ctrl.allocator = { type };
-          rebuild();
-        })
-      )
+      pluginChooser("strategy", "allocators", ctrl.allocator.type, (type) => {
+        ctrl.allocator = { type };
+        rebuild();
+      }, { help: "The rule this controller uses to pick which node runs each task. This is the thing under study." })
     );
     sub.append(
       paramsBlock(allocReg[ctrl.allocator.type]?.params, ctrl.allocator, {
@@ -783,18 +907,11 @@ function controllerSubcard(ctrl, i) {
     const obsReg = schema.registries.observability_models;
     const obsCurrent = ctrl.observability?.type || "perfect";
     sub.append(
-      field(
-        "model",
-        selInput(
-          Object.keys(obsReg).map((n) => [n, n === "perfect" ? "perfect (live truth)" : n]),
-          obsCurrent,
-          (type) => {
-            if (type === "perfect") delete ctrl.observability; // the default
-            else ctrl.observability = { type };
-            rebuild();
-          }
-        )
-      )
+      pluginChooser("model", "observability_models", obsCurrent, (type) => {
+        if (type === "perfect") delete ctrl.observability; // the default
+        else ctrl.observability = { type };
+        rebuild();
+      }, { help: "How up to date the controller's picture of each node is when it decides." })
     );
     if (ctrl.observability) {
       sub.append(
@@ -881,21 +998,20 @@ function networkCard() {
   const net = cfg.network;
   const netReg = schema.registries.network_models;
   const fields = el("div", { class: "fields" });
+  card.append(
+    pluginChooser("model", "network_models", net.type, (type) => {
+      net.type = type;
+      rebuild();
+    }, { help: "How transfer time between nodes is calculated." })
+  );
   fields.append(
-    field(
-      "model",
-      selInput(Object.keys(netReg), net.type, (type) => {
-        net.type = type;
-        rebuild();
-      }),
-      { required: true }
-    ),
     field(
       "default_profile",
       selInput(Object.keys(schema.network_profiles), net.default_profile || "wifi", (v) => {
         net.default_profile = v;
         dirty();
-      })
+      }),
+      { help: (schema.field_help && schema.field_help.default_profile) || "" }
     )
   );
   card.append(fields);
@@ -1007,13 +1123,10 @@ function scenariosCard() {
     );
     sub.append(head);
     sub.append(
-      field(
-        "type",
-        selInput(Object.keys(scnReg), scn.type, (type) => {
-          cfg.scenarios[i] = { type, node: scn.node };
-          rebuild();
-        })
-      )
+      pluginChooser("type", "scenarios", scn.type, (type) => {
+        cfg.scenarios[i] = { type, node: scn.node };
+        rebuild();
+      }, { help: "What goes wrong during the run, and when." })
     );
     sub.append(
       paramsBlock(scnReg[scn.type]?.params, scn, {
@@ -1403,9 +1516,11 @@ function drawTopology() {
  * run tab
  * ------------------------------------------------------------------ */
 
-async function currentYaml() {
-  const r = await api("/api/yaml/dump", { data: cfg });
-  return r.yaml;
+function yamlSyncFailed(out) {
+  out.innerHTML = "";
+  out.append(
+    resultBox(false, "Fix the YAML panel first", "The text there is not valid YAML.")
+  );
 }
 
 function resultBox(ok, title, detail) {
@@ -1417,7 +1532,9 @@ function resultBox(ok, title, detail) {
 async function doValidate() {
   const out = $("#validate-result");
   out.innerHTML = "";
-  const r = await api("/api/validate", { yaml: await currentYaml() });
+  const text = await syncedYaml();
+  if (text === null) return yamlSyncFailed(out);
+  const r = await api("/api/validate", { yaml: text });
   if (r.ok) {
     out.append(
       resultBox(
@@ -1446,9 +1563,11 @@ function miniTable(title, rows) {
 async function doRun() {
   const busy = $("#run-busy");
   const out = $("#run-result");
+  const text = await syncedYaml();
+  if (text === null) return yamlSyncFailed(out);
   busy.hidden = false;
   try {
-    const r = await api("/api/run", { yaml: await currentYaml() });
+    const r = await api("/api/run", { yaml: text });
     out.innerHTML = "";
     if (!r.ok) {
       out.append(resultBox(false, `Run failed (${r.stage || "request"})`, r.error));
@@ -2070,10 +2189,12 @@ async function doCompare() {
   const seeds = ($("#cmp-seeds").value || "")
     .split(",").map((s) => s.trim()).filter(Boolean).map(Number);
 
+  const text = await syncedYaml();
+  if (text === null) return yamlSyncFailed(out);
   $("#cmp-busy").hidden = false;
   try {
     const r = await api("/api/compare", {
-      yaml: await currentYaml(),
+      yaml: text,
       variants,
       seeds: seeds.length ? seeds : null,
     });
@@ -2228,7 +2349,14 @@ async function saveConfig() {
   let name = prompt("Save as (in configs/):", currentName);
   if (!name) return;
   if (!name.endsWith(".yaml") && !name.endsWith(".yml")) name += ".yaml";
-  const r = await api(`/api/configs/${name}`, { yaml: yamlText.value || (await currentYaml()) });
+  // syncedYaml, not yamlText.value: the panel lags the form by up to 300ms,
+  // so saving raw panel text could write a file missing the last edit.
+  const text = await syncedYaml();
+  if (text === null) {
+    setYamlStatus(false, "the YAML panel is not valid YAML - not saved");
+    return;
+  }
+  const r = await api(`/api/configs/${name}`, { yaml: text });
   if (r.ok) {
     currentName = name;
     await loadConfigsList();

@@ -48,12 +48,37 @@ def _apply_variant(base: dict[str, Any], variant: dict[str, Any]) -> dict[str, A
     return raw
 
 
+def _validated_seeds(seeds: Any, base_raw: dict[str, Any]) -> list[Any]:
+    """Seeds must be an explicit list of integers.
+
+    A bare string is rejected rather than iterated: ``"724"`` would silently
+    become the three seeds 7, 2 and 4 and quietly produce the wrong
+    experiment.
+    """
+    if seeds is None or seeds == []:
+        return [base_raw.get("seed")]
+    if isinstance(seeds, (str, bytes)) or not isinstance(seeds, (list, tuple)):
+        raise ValueError(
+            f"seeds must be a list of integers, got {type(seeds).__name__}"
+        )
+    out = []
+    for s in seeds:
+        if isinstance(s, bool) or not isinstance(s, (int, float)) or int(s) != s:
+            raise ValueError(f"seed {s!r} is not an integer")
+        out.append(int(s))
+    return out
+
+
 def run_compare(
     base_raw: dict[str, Any],
     variants: list[dict[str, Any]],
     seeds: list[int] | None,
 ) -> list[dict[str, Any]]:
-    seed_list = [int(s) for s in seeds] if seeds else [base_raw.get("seed")]
+    if not isinstance(variants, (list, tuple)) or any(
+        not isinstance(v, dict) for v in variants
+    ):
+        raise ValueError("every variant must be an object with a 'label'")
+    seed_list = _validated_seeds(seeds, base_raw)
     total = len(variants) * len(seed_list)
     if total == 0:
         raise ValueError("no comparison cells: provide at least one variant")

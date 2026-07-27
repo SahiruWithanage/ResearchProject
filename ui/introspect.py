@@ -38,6 +38,7 @@ from src.config.loader import _PROFILE_FIELDS
 from src.generation.task_builder import TaskBuilder
 from src.network.fluid_link import _BUILTIN_PROFILES
 from src.network.trace_fluid_link import _BandwidthTrace
+from ui.help import FIELD_HELP, param_help, plugin_help
 
 # Parameters the Environment injects at build time - never user-editable.
 _HIDDEN_PARAMS: dict[str, frozenset[str]] = {
@@ -119,7 +120,12 @@ def _init_owners(cls: type) -> list[type]:
     return owners
 
 
-def _class_params(cls: type, hidden: frozenset[str]) -> dict[str, dict[str, Any]]:
+def _class_params(
+    cls: type,
+    hidden: frozenset[str],
+    registry: str | None = None,
+    plugin: str | None = None,
+) -> dict[str, dict[str, Any]]:
     params: dict[str, dict[str, Any]] = {}
     # Parents first so the subclass's own definition wins on name clashes.
     for owner in reversed(_init_owners(cls)):
@@ -135,20 +141,28 @@ def _class_params(cls: type, hidden: frozenset[str]) -> dict[str, dict[str, Any]
             }
             if p.default is not inspect.Parameter.empty:
                 entry["default"] = _jsonable(p.default)
+            text = param_help(registry, plugin, name)
+            if text:
+                entry["help"] = text
             params[name] = entry
     return params
 
 
 def _registry_schema(
-    registry: Registry, hidden: frozenset[str] = frozenset()
+    registry: Registry,
+    hidden: frozenset[str] = frozenset(),
+    kind: str | None = None,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for name in registry.names():
         cls = registry.get(name)
         doc = (cls.__doc__ or "").strip().splitlines()
         out[name] = {
+            # `doc` is the developer docstring; `help` is the plain-language
+            # description the UI actually shows.
             "doc": doc[0] if doc else "",
-            "params": _class_params(cls, hidden),
+            "help": plugin_help(kind or "", name),
+            "params": _class_params(cls, hidden, kind, name),
         }
     return out
 
@@ -160,16 +174,22 @@ def _composite_schemas() -> dict[str, Any]:
     Keyed registry -> plugin ("*" = any plugin of that registry) -> param.
     """
     mix_item = _class_params(
-        TaskBuilder, frozenset({"source_node_id", "task_mix"})
+        TaskBuilder, frozenset({"source_node_id", "task_mix"}), "generators", "*"
     )
     mix_item = {
-        "weight": {"type": "number", "required": True},
+        "weight": {
+            "type": "number",
+            "required": True,
+            "help": param_help("generators", "*", "weight"),
+        },
         **mix_item,
     }
-    trace_item = _class_params(_BandwidthTrace, frozenset())
+    trace_item = _class_params(
+        _BandwidthTrace, frozenset(), "network_models", "trace_fluid_link"
+    )
     trace_item = {
-        "from": {"type": "node_id", "required": True},
-        "to": {"type": "node_id", "required": True},
+        "from": {"type": "node_id", "required": True, "help": param_help(None, None, "from")},
+        "to": {"type": "node_id", "required": True, "help": param_help(None, None, "to")},
         **trace_item,
     }
     return {
@@ -182,16 +202,21 @@ def build_schema() -> dict[str, Any]:
     """Everything the frontend needs to render every form, in one payload."""
     return {
         "registries": {
-            "generators": _registry_schema(generators, _HIDDEN_PARAMS["generators"]),
-            "allocators": _registry_schema(allocators),
-            "network_models": _registry_schema(
-                network_models, _HIDDEN_PARAMS["network_models"]
+            "generators": _registry_schema(
+                generators, _HIDDEN_PARAMS["generators"], "generators"
             ),
-            "distributions": _registry_schema(distributions),
-            "rate_patterns": _registry_schema(rate_patterns),
-            "observability_models": _registry_schema(observability_models),
-            "scenarios": _registry_schema(scenarios),
+            "allocators": _registry_schema(allocators, kind="allocators"),
+            "network_models": _registry_schema(
+                network_models, _HIDDEN_PARAMS["network_models"], "network_models"
+            ),
+            "distributions": _registry_schema(distributions, kind="distributions"),
+            "rate_patterns": _registry_schema(rate_patterns, kind="rate_patterns"),
+            "observability_models": _registry_schema(
+                observability_models, kind="observability_models"
+            ),
+            "scenarios": _registry_schema(scenarios, kind="scenarios"),
         },
+        "field_help": FIELD_HELP,
         "network_profiles": _jsonable(_BUILTIN_PROFILES),
         "node_fields": sorted(_PROFILE_FIELDS),
         "dist_capable_fields": _DIST_CAPABLE_FIELDS,

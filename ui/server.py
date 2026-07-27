@@ -117,8 +117,9 @@ def schema():
 
 @app.route("/api/configs")
 def list_configs():
-    names = sorted(p.name for p in CONFIG_DIR.glob("*.yaml"))
-    names += sorted(p.name for p in CONFIG_DIR.glob("*.yml"))
+    names = sorted(
+        p.name for p in CONFIG_DIR.iterdir() if p.suffix in (".yaml", ".yml")
+    )
     return jsonify({"configs": names})
 
 
