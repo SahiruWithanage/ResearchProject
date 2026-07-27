@@ -1,0 +1,155 @@
+# Demo scenario - built for showing the simulator live.
+#
+# Designed so that every feature is VISIBLE in a short run:
+#   - three unequal devices plus two helpers (heterogeneity)
+#   - a sensor that cannot run its own analytics work, so it MUST offload
+#   - enough load that allocators actually disagree (no 100% ties)
+#   - the fast server dies halfway through and limps back (instability)
+#   - a stale controller view, so decisions are made on old information
+#
+# 150 simulated seconds: long enough to show the failure and recovery,
+# short enough to replay in front of an audience.
+
+seed: 724
+sim_duration: 150.0
+dt: 0.01
+
+node_profiles:
+  sensor_class: # cheap sensing device: one slow core, tiny memory
+    cpu_capacity: 1.0
+    cpu_speed: 0.5
+    memory_capacity: 2.0
+    queue_limit: 6
+    accepts_task_types: [telemetry] # cannot run analytics at all
+    energy_cost_factor: 0.4
+  gateway_class: # mid-range gateway
+    cpu_capacity: 2.0
+    cpu_speed: 1.0
+    memory_capacity: 4.0
+    queue_limit: 10
+    accepts_task_types: [telemetry, control]
+    energy_cost_factor: 0.8
+  edge_server: # the fast helper everyone wants to use
+    cpu_capacity: 6.0
+    cpu_speed: 2.0
+    memory_capacity: 16.0
+    energy_cost_factor: 2.5 # but it is the expensive one to run
+  backup_helper: # slower fallback, cheap to run
+    cpu_capacity: 3.0
+    cpu_speed: 1.0
+    memory_capacity: 8.0
+    energy_cost_factor: 1.0
+
+network:
+  type: fluid_link
+  default_profile: wifi
+  links:
+    # the gateway has a wired hop to the server, both directions
+    - from: node_gateway
+      to: node_server
+      profile: lan
+    - from: node_server
+      to: node_gateway
+      profile: lan
+
+controllers:
+  - id: ctrl_main
+    allocator:
+      type: load_aware # swap this in the UI to compare strategies
+    observability:
+      type: heartbeat # the controller sees 2-second-old information
+      interval: 2.0
+      report_delay: 0.05
+    scheduling_delay: 0.02
+    manages: [node_sensor, node_gateway, node_camera, node_server, node_backup]
+    parent: null
+
+nodes:
+  # --- sources -------------------------------------------------------
+  - id: node_sensor
+    type: source
+    profile: sensor_class
+    tier: edge
+    source:
+      generator:
+        type: poisson
+        rate: 1.2
+        memory_demand: 0.4
+        deadline_offset: 6.0
+        task_mix:
+          - weight: 0.8 # small readings it can handle itself
+            task_type: telemetry
+            cpu_demand: 0.4
+            data_size: { dist: uniform, low: 40000, high: 120000 }
+            result_size: 8000
+          - weight: 0.2 # analytics it is NOT allowed to run: must offload
+            task_type: analytics
+            cpu_demand: { dist: uniform, low: 2.0, high: 4.0 }
+            data_size: 1500000
+            result_size: 40000
+
+  - id: node_gateway
+    type: source
+    profile: gateway_class
+    tier: edge
+    source:
+      generator:
+        type: poisson
+        # load rises and falls over a 60s cycle, so the run has calm and
+        # busy phases to watch
+        rate: { pattern: sinusoidal, base: 1.0, amplitude: 0.6, period: 60.0 }
+        task_type: control
+        cpu_demand: 1.5
+        memory_demand: 0.8
+        data_size: 60000
+        result_size: 6000
+        deadline_offset: 4.0
+
+  - id: node_camera
+    type: source
+    profile: sensor_class
+    tier: edge
+    source:
+      generator:
+        type: poisson
+        rate: 0.5
+        task_type: analytics # everything it makes must go elsewhere
+        cpu_demand: { dist: uniform, low: 2.5, high: 5.0 }
+        memory_demand: 1.0
+        data_size: 2000000 # 2 MB frames: the network cost is visible
+        result_size: 50000
+        deadline_offset: 8.0
+
+  # --- helpers -------------------------------------------------------
+  - id: node_server
+    type: helper
+    profile: edge_server
+    tier: edge
+
+  - id: node_backup
+    type: helper
+    profile: backup_helper
+    tier: edge
+
+scenarios:
+  # The fast server dies at t=60 and limps back from t=90, at half speed
+  # until t=110. Watch the replay: it greys out, its heartbeats stop, its
+  # queued work is lost, and everything reroutes to the slower backup.
+  - type: node_failure
+    node: node_server
+    fail_at: 60.0
+    recover_at: 90.0
+    recovery_duration: 20.0
+    recovery_speed_factor: 0.5
+  # Meanwhile the backup slowly becomes less trustworthy, which only the
+  # reliability_threshold allocator reacts to.
+  - type: reliability_decay
+    node: node_backup
+    start: 30.0
+    end: 130.0
+    from_value: 1.0
+    to_value: 0.35
+
+logging:
+  output_dir: logs/demo
+  log_state_every: 0.5
