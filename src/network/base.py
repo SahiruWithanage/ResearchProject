@@ -27,6 +27,20 @@ class NetworkModel(ABC):
       models draw jitter here.
     """
 
+    def can_reach(self, source_id: str, target_id: str) -> bool:
+        """Can ``source_id`` send anything to ``target_id`` at all?
+
+        Not a delay question: an unreachable pair is not "very slow", it is
+        no route. The Controller drops unreachable nodes from a task's
+        candidate list, exactly as it drops unsuitable or full ones, so an
+        unreachable node is never chosen and the task is logged as lost if
+        nothing else can take it. Modelling it as a huge delay instead would
+        leave tasks stuck in transit forever, silently distorting metrics.
+
+        Defaults to fully connected, so models that do not care are unaffected.
+        """
+        return True
+
     @abstractmethod
     def uplink_delay(
         self,

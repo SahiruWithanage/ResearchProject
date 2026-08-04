@@ -392,6 +392,11 @@ def _parse_network(raw: Any) -> NetworkConfig:
             )
         if "from" not in link or "to" not in link:
             raise ConfigError(f"network.links[{i}] requires 'from' and 'to'")
+        if "reachable" in link and not isinstance(link["reachable"], bool):
+            raise ConfigError(
+                f"network.links[{i}].reachable must be true or false, "
+                f"got {link['reachable']!r}"
+            )
         links.append(dict(link))
 
     params_raw = raw.get("params", {})

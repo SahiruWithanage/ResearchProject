@@ -66,15 +66,23 @@ class Controller:
         never dropped while its source still has room, because a
         with-room source is itself an eligible candidate.
 
+        A node the source cannot reach over the network is not a candidate
+        either. The source itself is always reachable from itself - running
+        a task locally needs no network.
+
         The *states* the allocator scores with come from the observability
         model (possibly stale heartbeat reports); eligibility (limits,
-        suitability) stays physical - the node itself knows if it's full.
+        suitability, reachability) stays physical - the node itself knows if
+        it's full, and the topology knows what it can talk to.
         """
         states = self.observability.observe(t)
         eligible: list[EdgeNode] = [
             rt.node
             for rt in self.managed_nodes
-            if rt.is_available() and rt.node.is_suitable(task) and rt.has_room()
+            if rt.is_available()
+            and rt.node.is_suitable(task)
+            and rt.has_room()
+            and self._reachable(task, rt.node.node_id, estimator)
         ]
 
         if not eligible:
@@ -86,6 +94,10 @@ class Controller:
                 estimated_completion_time=None,
                 arrival_time=task.arrival_time,
                 task_lost=True,
+                # A dropped task definitively missed its deadline. Leaving
+                # this None would make it indistinguishable from a task that
+                # was still in flight when the run ended.
+                deadline_met=False,
             )
             self.outcomes[task.task_id] = outcome
             return outcome
@@ -170,6 +182,17 @@ class Controller:
             )
         outcome.return_end = return_time
         outcome.deadline_met = return_time <= task.deadline
+
+    @staticmethod
+    def _reachable(task: Task, node_id: str, estimator: CompletionEstimator) -> bool:
+        """Can this task's payload actually get to that node?
+
+        Local execution never touches the network, so a node is always
+        reachable from itself.
+        """
+        if node_id == task.source_node_id:
+            return True
+        return estimator.network.can_reach(task.source_node_id, node_id)
 
     def record_loss(self, task: Task) -> None:
         """Mark an already-allocated task as lost (node crash, dead arrival)."""

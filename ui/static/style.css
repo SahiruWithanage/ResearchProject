@@ -224,6 +224,8 @@ button.danger:hover { border-color: var(--bad); color: var(--bad); }
 .topo-node text { font-size: 11px; fill: var(--text); user-select: none; }
 .topo-link { stroke: #9aa7b4; stroke-width: 2.5; }
 .topo-link-default { stroke: #d9e0e7; stroke-width: 1.5; stroke-dasharray: 2 4; }
+/* severed pair: no route in either direction */
+.topo-link-cut { stroke: #dc2626; stroke-width: 1.5; stroke-dasharray: 1 6; opacity: 0.55; }
 .topo-link-label { font-size: 9px; fill: var(--muted); pointer-events: none; user-select: none; }
 .topo-manage { stroke: #e7cfa0; stroke-width: 1.2; stroke-dasharray: 5 4; }
 .topo-hit { stroke: transparent; stroke-width: 14; cursor: pointer; pointer-events: stroke; }

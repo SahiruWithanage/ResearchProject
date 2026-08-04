@@ -260,6 +260,13 @@ class Environment:
     def _deliver_returns(self, t_end: float) -> None:
         for entry in self._return_transit.deliver_due(t_end):
             ctrl = self._controller_for_task(entry.task)
+            source = self.runtimes[entry.task.source_node_id]
+            if not source.is_available():
+                # The requester crashed while its result was on the way, so
+                # nobody is there to receive it. The work is wasted - the
+                # same verdict as a payload arriving at a dead executor.
+                ctrl.record_loss(entry.task)
+                continue
             ctrl.record_return(entry.task, entry.arrive_at)
 
     def _controller_for_task(self, task: Task) -> Controller:

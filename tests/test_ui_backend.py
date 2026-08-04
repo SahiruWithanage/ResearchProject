@@ -262,8 +262,8 @@ def test_run_returns_summary_and_writes_standard_logs(client, tmp_path):
     assert body["ok"] is True
     summary = body["summary"]
     assert summary["tasks_generated"] == 5  # fixed_interval 1.0 over 5 s
-    assert summary["tasks_completed"] > 0
-    assert 0.0 <= summary["deadline_pct"] <= 100.0
+    assert summary["tasks_succeeded"] > 0
+    assert 0.0 <= summary["success_rate"] <= 100.0
 
     log_dir = tmp_path / "logs" / "ui" / body["run_id"]
     for name in ("allocation_log.csv", "state_log.csv", "config_used.yaml", "seed.txt"):
@@ -313,7 +313,7 @@ def test_compare_cell_matches_direct_run(client):
             "variants": [{"label": "base", "allocator": {"type": "load_aware"}}],
         },
     ).get_json()["cells"][0]
-    for key in ("tasks_generated", "tasks_completed", "deadline_pct", "placement"):
+    for key in ("tasks_generated", "tasks_succeeded", "success_rate", "placement"):
         assert cell["summary"][key] == direct[key]
 
 
@@ -422,6 +422,87 @@ def test_timeline_unknown_run_is_404(client):
     assert client.get("/api/run/nope/timeline").status_code == 404
 
 
+def test_success_rate_counts_dropped_tasks_as_failures():
+    """The headline metric divides by every task generated, not by the ones
+    that happened to finish - otherwise shedding load looks like success."""
+    from src.config import parse_config
+    from src.simulation.environment import Environment
+
+    raw = yaml.safe_load(
+        (ui_server.PROJECT_ROOT / "configs" / "instability.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    s = summarize(Environment(parse_config(raw)).run())
+
+    assert s["tasks_lost"] > 0, "this config is meant to drop tasks"
+    # every task ends in exactly one bucket
+    assert (
+        s["tasks_succeeded"] + s["tasks_lost"] + s["tasks_late"] + s["tasks_unfinished"]
+        == s["tasks_generated"]
+    )
+    # and the honest rate is strictly worse than the completed-only figure
+    assert s["success_rate"] < s["deadline_pct_of_completed"]
+
+
+def test_result_arriving_at_a_crashed_source_is_a_loss():
+    """A result delivered to a requester that has gone down helped nobody."""
+    from src.config import parse_config
+    from src.simulation.environment import Environment
+
+    raw = {
+        "seed": 1,
+        "sim_duration": 30.0,
+        "dt": 0.01,
+        "network": {"type": "fluid_link", "default_profile": "wifi"},
+        "controllers": [
+            {
+                "id": "c",
+                "allocator": {"type": "latency_first"},
+                "manages": ["src", "helper"],
+                "parent": None,
+            }
+        ],
+        "nodes": [
+            {
+                "id": "src",
+                "type": "source",
+                "cpu_capacity": 1.0,
+                "memory_capacity": 8.0,
+                "tier": "edge",
+                "queue_limit": 1,
+                "source": {
+                    "generator": {
+                        "type": "fixed_interval",
+                        "interval": 1.0,
+                        "cpu_demand": 3.0,
+                        "result_size": 5_000_000,  # a slow trip home
+                        "deadline_offset": 100.0,
+                    }
+                },
+            },
+            {
+                "id": "helper",
+                "type": "helper",
+                "cpu_capacity": 4.0,
+                "memory_capacity": 8.0,
+                "tier": "edge",
+            },
+        ],
+        # the requester dies while results are still coming back to it
+        "scenarios": [{"type": "node_failure", "node": "src", "fail_at": 6.0}],
+        "logging": {"output_dir": "logs/x", "log_state_every": 1.0},
+    }
+    result = Environment(parse_config(raw)).run()
+    # nothing may be marked as having met its deadline after the source died
+    late_success = [
+        o
+        for o in result.outcomes
+        if o.deadline_met is True and o.return_end is not None and o.return_end > 6.0
+    ]
+    assert not late_success, "a result was delivered to a node that had crashed"
+
+
 def test_run_summary_matches_metrics_definitions(client):
     from src.config import parse_config
     from src.simulation.environment import Environment
@@ -429,5 +510,5 @@ def test_run_summary_matches_metrics_definitions(client):
     result = Environment(parse_config(yaml.safe_load(TINY_YAML))).run()
     direct = summarize(result)
     via_api = client.post("/api/run", json={"yaml": TINY_YAML}).get_json()["summary"]
-    for key in ("tasks_generated", "tasks_completed", "deadline_pct", "placement"):
+    for key in ("tasks_generated", "tasks_succeeded", "success_rate", "placement"):
         assert via_api[key] == direct[key]

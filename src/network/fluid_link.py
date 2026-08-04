@@ -76,6 +76,8 @@ class FluidLinkNetworkModel(NetworkModel):
         self.default_profile = default_profile
         self._rng = rng
         self._pair_specs: dict[tuple[str, str], _LinkSpec] = {}
+        # Directed pairs with no route at all (see can_reach).
+        self._unreachable: set[tuple[str, str]] = set()
         self._profile_specs = self._build_profile_specs(profiles or {})
         for raw in links or []:
             self._register_link(raw)
@@ -167,9 +169,22 @@ class FluidLinkNetworkModel(NetworkModel):
             return self._pair_specs[key]
         return self._profile_specs[self.default_profile]
 
+    def can_reach(self, source_id: str, target_id: str) -> bool:
+        """False when this pair was explicitly given no connection."""
+        return (source_id, target_id) not in self._unreachable
+
     def _register_link(self, raw: dict[str, Any]) -> None:
         from_id = str(raw["from"])
         to_id = str(raw["to"])
+        # `profile: none` (or reachable: false) severs the pair in this
+        # direction: no route, rather than a very slow one.
+        if str(raw.get("profile", "")).lower() == "none" or raw.get(
+            "reachable"
+        ) is False:
+            self._unreachable.add((from_id, to_id))
+            self._pair_specs.pop((from_id, to_id), None)
+            return
+        self._unreachable.discard((from_id, to_id))
         if "profile" in raw:
             base = self._profile_specs[str(raw["profile"])]
             spec = _LinkSpec(

@@ -209,8 +209,12 @@ def _print_summary(
     outcomes = result.outcomes
     snapshots = result.snapshots
     completed = [o for o in outcomes if o.actual_completion_time is not None]
-    met = [o for o in completed if o.deadline_met]
+    # Success = ran to completion, result got home if one was due, and beat
+    # the deadline. deadline_met encodes all three.
+    succeeded = [o for o in outcomes if o.deadline_met is True]
     lost = [o for o in outcomes if o.task_lost]
+    late = [o for o in outcomes if o.deadline_met is False and not o.task_lost]
+    unfinished = [o for o in outcomes if o.deadline_met is None]
 
     print("=" * 60)
     print("Run complete")
@@ -220,12 +224,16 @@ def _print_summary(
     print()
 
     print(f"  Tasks generated:  {len(outcomes)}")
-    print(f"  Tasks completed:  {len(completed)}/{len(outcomes)}")
-    if lost:
-        print(f"  Tasks lost:       {len(lost)} (no eligible node had room)")
-    if completed:
-        rate = 100.0 * len(met) / len(completed)
-        print(f"  Deadlines met:    {len(met)}/{len(completed)} ({rate:.1f}%)")
+    if outcomes:
+        rate = 100.0 * len(succeeded) / len(outcomes)
+        print(f"  SUCCEEDED:        {len(succeeded)}/{len(outcomes)} ({rate:.1f}%)")
+        print("                    (completed, returned to source, on time)")
+        if lost:
+            print(f"    lost:           {len(lost)} (dropped, or destroyed by a failure)")
+        if late:
+            print(f"    late:           {len(late)} (finished, but past the deadline)")
+        if unfinished:
+            print(f"    unfinished:     {len(unfinished)} (still in flight when the run ended)")
     print()
 
     if outcomes:

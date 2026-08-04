@@ -1237,17 +1237,28 @@ function setLinkProfile(from, to, profile) {
   dirty();
 }
 
+function linkOptions() {
+  return [["", `(default: ${cfg.network.default_profile || "wifi"})`]]
+    .concat(Object.keys(schema.network_profiles).map((p) => [p, p]))
+    .concat([["none", "no connection (cannot send)"]]);
+}
+
 function linkProfileField(labelText, from, to) {
   const current = (cfg.network.links || []).find(
     (l) => l.from === from && l.to === to
   );
-  const options = [["", `(default: ${cfg.network.default_profile || "wifi"})`]].concat(
-    Object.keys(schema.network_profiles).map((p) => [p, p])
-  );
   return field(
     labelText,
-    selInput(options, (current && current.profile) || "", (v) => setLinkProfile(from, to, v)),
-    { wide: true }
+    selInput(linkOptions(), (current && current.profile) || "", (v) =>
+      setLinkProfile(from, to, v)
+    ),
+    {
+      wide: true,
+      help:
+        "Pick a link profile, leave it on the default, or choose 'no " +
+        "connection' to cut this route entirely. A node that cannot be " +
+        "reached is never chosen, and a task with nowhere to go is lost.",
+    }
   );
 }
 
@@ -1266,17 +1277,19 @@ function openLinkModal(a, b) {
     const fields = el("div", { class: "fields" });
     if (!asym) {
       const cur = (cfg.network.links || []).find((l) => l.from === a && l.to === b);
-      const options = [["", `(default: ${cfg.network.default_profile || "wifi"})`]].concat(
-        Object.keys(schema.network_profiles).map((p) => [p, p])
-      );
       fields.append(
         field(
           "link profile (both directions)",
-          selInput(options, (cur && cur.profile) || "", (v) => {
+          selInput(linkOptions(), (cur && cur.profile) || "", (v) => {
             setLinkProfile(a, b, v);
             setLinkProfile(b, a, v);
           }),
-          { wide: true }
+          {
+            wide: true,
+            help:
+              "Pick a link profile, leave it on the default, or choose 'no " +
+              "connection' to cut these two off from each other entirely.",
+          }
         )
       );
     } else {
@@ -1381,14 +1394,28 @@ function drawLinks(svg, pos, { nodes, links, defaultProfile, configured, onClick
       const pa = pos(`node:${a}`);
       const pb = pos(`node:${b}`);
       if (!pa || !pb) continue;
+
+      const isCut = (l) => l && (l.profile === "none" || l.reachable === false);
+      const cutF = isCut(fwd);
+      const cutR = isCut(rev);
+      const severed = cutF && cutR; // no route either way
+
       svg.append(
         svgEl("line", {
-          class: overridden ? "topo-link" : "topo-link-default",
+          class: severed
+            ? "topo-link-cut"
+            : overridden
+            ? "topo-link"
+            : "topo-link-default",
           x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
         })
       );
       let label;
-      if (!overridden) {
+      if (severed) {
+        label = "no connection";
+      } else if (cutF || cutR) {
+        label = cutF ? `${b} -> ${a} only` : `${a} -> ${b} only`;
+      } else if (!overridden) {
         label = defaultProfile;
       } else {
         const f = (fwd && fwd.profile) || defaultProfile;
@@ -1590,14 +1617,25 @@ async function doRun() {
     const cards = el("div", { class: "summary-cards" });
     cards.append(
       statCard("tasks generated", s.tasks_generated),
-      statCard("completed", s.tasks_completed),
+      statCard("SUCCEEDED", `${s.success_rate.toFixed(1)}%`),
       statCard("lost", s.tasks_lost),
-      statCard("deadlines met", `${s.deadline_pct.toFixed(1)}%`),
+      statCard("late", s.tasks_late),
+      statCard("unfinished", s.tasks_unfinished),
+      statCard("median latency", `${s.median_latency_s.toFixed(3)} s`),
       statCard("mean latency", `${s.mean_latency_s.toFixed(3)} s`),
       statCard("simulated", `${s.final_time.toFixed(0)} s`),
       statCard("wall clock", `${s.wall_seconds.toFixed(3)} s`)
     );
     out.append(cards);
+    out.append(
+      el("div", {
+        class: "hint",
+        text:
+          `Succeeded = ran to completion, result returned to the source, and ` +
+          `beat the deadline: ${s.tasks_succeeded} of ${s.tasks_generated}. ` +
+          `Everything else counts as a failure.`,
+      })
+    );
     out.append(
       miniTable("tasks per node", Object.entries(s.placement)),
       miniTable("max queue per node", Object.entries(s.max_queue))
@@ -1641,7 +1679,7 @@ async function refreshRunsList() {
   t.append(
     el("tr", {},
       el("th", { text: "run" }), el("th", { text: "tasks" }),
-      el("th", { text: "deadline %" }), el("th", { text: "mean latency" }))
+      el("th", { text: "success %" }), el("th", { text: "mean latency" }))
   );
   for (const [id, entry] of entries.reverse()) {
     const s = entry.summary || {};
@@ -1649,7 +1687,7 @@ async function refreshRunsList() {
       el("tr", {},
         el("td", { text: id }),
         el("td", { text: s.tasks_generated ?? "…" }),
-        el("td", { text: s.deadline_pct !== undefined ? s.deadline_pct.toFixed(1) : "…" }),
+        el("td", { text: s.success_rate !== undefined ? s.success_rate.toFixed(1) : "…" }),
         el("td", { text: s.mean_latency_s !== undefined ? `${s.mean_latency_s.toFixed(3)} s` : "…" }))
     );
   }
@@ -2212,8 +2250,8 @@ async function doCompare() {
     t.append(
       el("tr", {},
         el("th", { text: "variant" }), el("th", { text: "seed" }),
-        el("th", { text: "done" }), el("th", { text: "lost" }),
-        el("th", { text: "deadline %" }), el("th", { text: "mean latency" }),
+        el("th", { text: "succeeded" }), el("th", { text: "lost" }),
+        el("th", { text: "success %" }), el("th", { text: "mean latency" }),
         el("th", { text: "placement" }))
     );
     const bySeedCount = new Set(r.cells.map((c) => c.seed)).size;
@@ -2225,9 +2263,9 @@ async function doCompare() {
       const tr = el("tr", {},
         el("td", {}, el("b", { text: `${group[0].label} - mean` })),
         el("td", { text: `${group.length} seeds` }),
-        el("td", { text: mean((s) => s.tasks_completed).toFixed(1) }),
+        el("td", { text: mean((s) => s.tasks_succeeded).toFixed(1) }),
         el("td", { text: mean((s) => s.tasks_lost).toFixed(1) }),
-        el("td", {}, el("b", { text: `${mean((s) => s.deadline_pct).toFixed(1)}%` })),
+        el("td", {}, el("b", { text: `${mean((s) => s.success_rate).toFixed(1)}%` })),
         el("td", {}, el("b", { text: `${mean((s) => s.mean_latency_s).toFixed(3)} s` })),
         el("td", { text: "" }));
       t.append(tr);
@@ -2242,9 +2280,9 @@ async function doCompare() {
         el("tr", {},
           el("td", { text: cell.label }),
           el("td", { text: cell.seed }),
-          el("td", { text: `${s.tasks_completed}/${s.tasks_generated}` }),
+          el("td", { text: `${s.tasks_succeeded}/${s.tasks_generated}` }),
           el("td", { text: s.tasks_lost }),
-          el("td", { text: `${s.deadline_pct.toFixed(1)}%` }),
+          el("td", { text: `${s.success_rate.toFixed(1)}%` }),
           el("td", { text: `${s.mean_latency_s.toFixed(3)} s` }),
           el("td", { text: fmtPlacement(s.placement) }))
       );
@@ -2258,13 +2296,14 @@ async function doCompare() {
 
 function cmpExportCsv() {
   if (!cmpCells) return;
-  const header = "variant,seed,tasks_generated,tasks_completed,tasks_lost,deadline_pct,mean_latency_s,placement";
+  const header = "variant,seed,tasks_generated,tasks_succeeded,tasks_lost,tasks_late,tasks_unfinished,success_rate,median_latency_s,mean_latency_s,placement";
   const lines = cmpCells.map((c) => {
     const s = c.summary;
     const placement = fmtPlacement(s.placement).replaceAll(",", ";");
     return [
-      JSON.stringify(c.label), c.seed, s.tasks_generated, s.tasks_completed,
-      s.tasks_lost, s.deadline_pct.toFixed(2), s.mean_latency_s.toFixed(4),
+      JSON.stringify(c.label), c.seed, s.tasks_generated, s.tasks_succeeded,
+      s.tasks_lost, s.tasks_late, s.tasks_unfinished, s.success_rate.toFixed(2),
+      s.median_latency_s.toFixed(4), s.mean_latency_s.toFixed(4),
       JSON.stringify(placement),
     ].join(",");
   });
