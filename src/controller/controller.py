@@ -2,16 +2,32 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from src.controller.allocators.base import Allocator
 from src.controller.context import DecisionContext
 from src.controller.observability import ObservabilityModel, PerfectObservability
-from src.models import AllocationOutcome, EdgeNode, Task
+from src.models import AllocationOutcome, EdgeNode, NodeState, Task
 from src.simulation.estimates import CompletionEstimator
 
 if TYPE_CHECKING:
     from src.simulation.processing import NodeRuntime
+
+
+@dataclass(frozen=True, slots=True)
+class _InFlight:
+    """One dispatch the controller remembers until the node reports back.
+
+    ``expected_arrival`` is when the controller believes the node will have
+    the task: dispatch time plus its own estimate of the transfer. A report
+    taken at or after that moment supersedes this record.
+    """
+
+    node_id: str
+    cpu_demand: float
+    expected_arrival: float
 
 
 class Controller:
@@ -50,6 +66,64 @@ class Controller:
             rt.node_id: rt for rt in managed_nodes
         }
         self.outcomes: dict[str, AllocationOutcome] = {}
+        # What this controller has sent that the nodes' reports cannot yet
+        # reflect. See _adjusted_states.
+        self._in_flight: list[_InFlight] = []
+
+    def _adjusted_states(
+        self, states: Mapping[str, NodeState]
+    ) -> dict[str, NodeState]:
+        """Observed reports, plus work this controller knows it has sent.
+
+        A controller is stale about *node state*, but it is not amnesiac
+        about its own actions. Without this, tasks decided together all see
+        the same empty node and stampede onto it: the first placement is
+        invisible to the second because the task is still crossing the
+        network, or because the next heartbeat has not arrived.
+
+        An entry is counted only while the node's latest report is older
+        than the moment we expect that node to have *received* the task.
+        Once a newer report exists it is authoritative - it already counts
+        the task if it is still queued there, and already excludes it if it
+        finished - so the memory defers to it and drops the entry. That
+        makes the memory self-clearing and bounded by the report interval,
+        with no completion channel required (which would hand the
+        controller instant knowledge and quietly erase the very staleness
+        under study).
+        """
+        if not self._in_flight:
+            return dict(states)
+
+        pending_tasks: dict[str, int] = {}
+        pending_work: dict[str, float] = {}
+        keep: list[_InFlight] = []
+        for entry in self._in_flight:
+            state = states.get(entry.node_id)
+            # Superseded: the node has reported since it should have had this.
+            if state is not None and state.time_step >= entry.expected_arrival:
+                continue
+            keep.append(entry)
+            pending_tasks[entry.node_id] = pending_tasks.get(entry.node_id, 0) + 1
+            pending_work[entry.node_id] = (
+                pending_work.get(entry.node_id, 0.0) + entry.cpu_demand
+            )
+        self._in_flight = keep
+
+        if not pending_tasks:
+            return dict(states)
+
+        adjusted = {}
+        for node_id, state in states.items():
+            extra_tasks = pending_tasks.get(node_id, 0)
+            if not extra_tasks:
+                adjusted[node_id] = state
+                continue
+            adjusted[node_id] = replace(
+                state,
+                queue_length=state.queue_length + extra_tasks,
+                queued_work=state.queued_work + pending_work[node_id],
+            )
+        return adjusted
 
     def submit(
         self,
@@ -75,7 +149,7 @@ class Controller:
         suitability, reachability) stays physical - the node itself knows if
         it's full, and the topology knows what it can talk to.
         """
-        states = self.observability.observe(t)
+        states = self._adjusted_states(self.observability.observe(t))
         eligible: list[EdgeNode] = [
             rt.node
             for rt in self.managed_nodes
@@ -147,6 +221,24 @@ class Controller:
             transfer_start=t + self.scheduling_delay,
         )
         self.outcomes[task.task_id] = outcome
+
+        # Remember it until the chosen node has reported since receiving it.
+        # The expected arrival is the controller's own estimate - the only
+        # thing it legitimately knows - so a task still crossing the network
+        # keeps counting, which is correct: it is real work heading there
+        # and the destination has not seen it either.
+        transfer = (
+            estimator.uplink_delay(source_id, chosen_id, task, t)
+            if chosen_id != source_id
+            else 0.0
+        )
+        self._in_flight.append(
+            _InFlight(
+                node_id=chosen_id,
+                cpu_demand=task.cpu_demand,
+                expected_arrival=t + self.scheduling_delay + transfer,
+            )
+        )
         return outcome
 
     def record_completion(

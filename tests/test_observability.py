@@ -168,10 +168,25 @@ def test_unknown_observability_type_raises_at_build() -> None:
 # ===========================================================================
 
 def test_stale_view_changes_allocation_behaviour() -> None:
-    # Same deterministic workload; only the controller's knowledge differs.
-    fresh = Environment(parse_config(_raw())).run()
+    """Staleness only bites when node state moves unpredictably.
+
+    The controller remembers what it dispatched, so with a perfectly
+    regular workload it can dead-reckon through any amount of staleness
+    and reach the same decisions as a live view. What it cannot predict is
+    *when work finishes*, so this uses variable task sizes: the belief then
+    drifts from reality between reports, and the decisions diverge. That
+    unpredictable component is the uncertainty the Bayesian layer targets.
+    """
+    varied = {"cpu_demand": {"dist": "uniform", "low": 0.5, "high": 6.0}}
+
+    def spec(extra_ctrl=None):
+        raw = _raw(extra_ctrl)
+        raw["nodes"][0]["source"]["generator"].update(varied)
+        return raw
+
+    fresh = Environment(parse_config(spec())).run()
     stale = Environment(
-        parse_config(_raw({"observability": {"type": "heartbeat",
+        parse_config(spec({"observability": {"type": "heartbeat",
                                              "interval": 10.0}}))
     ).run()
     placements_fresh = [
