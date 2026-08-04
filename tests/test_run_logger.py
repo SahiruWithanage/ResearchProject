@@ -99,6 +99,48 @@ def test_write_run_creates_nested_output_dir(tmp_path: Path, raw_config) -> None
     assert out.is_dir()
 
 
+def test_manifest_records_code_environment_and_output_checksums(
+    tmp_path: Path, raw_config
+) -> None:
+    """A result is untraceable without knowing what produced it."""
+    import json
+
+    result, cfg, raw = _run(raw_config)
+    logger = RunLogger(tmp_path / "run")
+    logger.write_run(result, cfg, raw)
+    m = json.loads(logger.manifest_path.read_text(encoding="utf-8"))
+
+    assert m["run"]["seed"] == cfg.seed
+    assert m["run"]["dt"] == cfg.dt
+    assert m["run"]["allocators"] == ["local_first_helper_offload"]
+    assert m["environment"]["python"]
+    assert m["environment"]["packages"]["numpy"]
+    assert "git_dirty" in m["code"]
+
+    # checksums must match the files actually written
+    import hashlib
+
+    for name in ("allocation_log.csv", "state_log.csv", "config_used.yaml"):
+        digest = hashlib.sha256(
+            (logger.output_dir / name).read_bytes()
+        ).hexdigest()
+        assert m["outputs"][name] == digest
+
+
+def test_manifest_checksums_prove_a_reproduction(tmp_path: Path, raw_config) -> None:
+    """Same seed and config twice: identical output checksums."""
+    import json
+
+    digests = []
+    for name in ("a", "b"):
+        result, cfg, raw = _run(raw_config)
+        logger = RunLogger(tmp_path / name)
+        logger.write_run(result, cfg, raw)
+        m = json.loads(logger.manifest_path.read_text(encoding="utf-8"))
+        digests.append(m["outputs"])
+    assert digests[0] == digests[1]
+
+
 def test_write_run_produces_all_four_files(tmp_path: Path, raw_config) -> None:
     result, cfg, raw = _run(raw_config)
     logger = RunLogger(tmp_path / "run")

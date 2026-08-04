@@ -410,6 +410,7 @@ def test_run_download_returns_full_log_bundle(client):
             "state_log.csv",
             "config_used.yaml",
             "seed.txt",
+            "run_manifest.json",
         )
     )
 

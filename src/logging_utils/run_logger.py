@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 import yaml
 from src.config.schema import SimulationConfig
+from src.logging_utils.manifest import build_manifest, write_manifest
 from src.models import AllocationOutcome, NodeState
 from src.simulation.environment import EnvironmentResult
 
@@ -53,12 +54,14 @@ class RunLogger:
         config: SimulationConfig,
         raw_config: dict[str, Any],
     ) -> None:
-        """Write allocation_log.csv, state_log.csv, config_used.yaml, seed.txt."""
+        """Write the run bundle: two CSVs, the config, the seed, the manifest."""
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._write_allocation_log(result.outcomes)
         self._write_state_log(result.snapshots)
         self._write_config(raw_config)
         self._write_seed(config.seed)
+        # Last: it checksums the files written above.
+        self._write_manifest(config)
 
     @property
     def allocation_log_path(self) -> Path:
@@ -75,6 +78,27 @@ class RunLogger:
     @property
     def seed_path(self) -> Path:
         return self.output_dir / "seed.txt"
+
+    @property
+    def manifest_path(self) -> Path:
+        return self.output_dir / "run_manifest.json"
+
+    def _write_manifest(self, config: SimulationConfig) -> None:
+        write_manifest(
+            self.manifest_path,
+            build_manifest(
+                repo_root=Path(__file__).resolve().parent.parent.parent,
+                seed=config.seed,
+                sim_duration=config.sim_duration,
+                dt=config.dt,
+                allocators=sorted({c.allocator.type for c in config.controllers}),
+                output_files={
+                    "allocation_log.csv": self.allocation_log_path,
+                    "state_log.csv": self.state_log_path,
+                    "config_used.yaml": self.config_path,
+                },
+            ),
+        )
 
     def _write_allocation_log(self, outcomes: list[AllocationOutcome]) -> None:
         ordered = sorted(outcomes, key=lambda o: (o.decision_time, o.task_id))
