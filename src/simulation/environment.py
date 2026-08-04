@@ -88,6 +88,10 @@ class Environment:
             alloc = alloc_cls(**ctrl_cfg.allocator.params)
             obs_cls = observability_models.get(ctrl_cfg.observability.type)
             observability = obs_cls(**ctrl_cfg.observability.params)
+            # A hosted controller sits on a real device, so its reports
+            # travel real links rather than a flat configured delay.
+            if ctrl_cfg.host is not None and hasattr(observability, "locate"):
+                observability.locate(ctrl_cfg.host, self._network)
             managed_runtimes = [self.runtimes[node_id] for node_id in ctrl_cfg.manages]
             ctrl = Controller(
                 id=ctrl_cfg.id,
@@ -97,6 +101,7 @@ class Environment:
                 parent_id=ctrl_cfg.parent,
                 observability=observability,
                 scheduling_delay=ctrl_cfg.scheduling_delay,
+                host=ctrl_cfg.host,
             )
             self.controllers[ctrl.id] = ctrl
             for runtime in managed_runtimes:

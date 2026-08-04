@@ -340,6 +340,13 @@ def _parse_controller(raw: Any, idx: int) -> ControllerConfig:
         obs_params = {k: v for k, v in obs_raw.items() if k != "type"}
         observability = ObservabilityConfig(type=obs_type, params=obs_params)
 
+    host_raw = raw.get("host")
+    if host_raw is not None and not isinstance(host_raw, str):
+        raise ConfigError(
+            f"{where}.host must be a node id string or null, got "
+            f"{type(host_raw).__name__}: {host_raw!r}"
+        )
+
     sched_raw = raw.get("scheduling_delay", 0.0)
     if not _is_number(sched_raw) or float(sched_raw) < 0:
         raise ConfigError(
@@ -353,6 +360,7 @@ def _parse_controller(raw: Any, idx: int) -> ControllerConfig:
         parent=parent_raw,
         observability=observability,
         scheduling_delay=float(sched_raw),
+        host=host_raw,
     )
 
 
@@ -491,6 +499,14 @@ def _check_cross_references(
             )
         if ctrl.parent == ctrl.id:
             raise ConfigError(f"controller {ctrl.id!r} cannot be its own parent")
+
+        # A hosted controller runs on a real device, which gives its control
+        # traffic a place to travel from.
+        if ctrl.host is not None and ctrl.host not in node_ids:
+            raise ConfigError(
+                f"controller {ctrl.id!r} is hosted on unknown node "
+                f"{ctrl.host!r}. known nodes: {sorted(node_ids)}"
+            )
 
     # Every node must be managed by some controller.
     unmanaged = node_ids - managed_by.keys()

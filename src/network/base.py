@@ -27,6 +27,21 @@ class NetworkModel(ABC):
       models draw jitter here.
     """
 
+    def expected_control_delay(
+        self, source_id: str, target_id: str, payload_bytes: float
+    ) -> float:
+        """Expected time for a small control message to cross this pair.
+
+        Control traffic (heartbeat reports, dispatch instructions) is not a
+        Task, so it needs its own entry point - but it travels the same
+        links as data. Deterministic and RNG-free, like the other
+        ``expected_*`` methods.
+
+        Defaults to zero: models without a notion of transmission cost
+        deliver control messages instantly.
+        """
+        return 0.0
+
     def can_reach(self, source_id: str, target_id: str) -> bool:
         """Can ``source_id`` send anything to ``target_id`` at all?
 

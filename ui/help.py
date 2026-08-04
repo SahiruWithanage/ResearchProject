@@ -190,6 +190,12 @@ FIELD_HELP: dict[str, str] = {
     ),
     "manages": "Which nodes this controller decides for.",
     "parent": "A controller above this one in a hierarchy. Usually empty.",
+    "host": (
+        "Which device this controller physically runs on. Giving it a place "
+        "in the topology means its status reports travel real network links "
+        "instead of a fixed delay. Leave empty for a controller with no "
+        "location."
+    ),
     "scheduling_delay": (
         "Seconds of overhead between the controller deciding and the task "
         "starting to move: its own processing plus sending the instruction. "
@@ -238,6 +244,12 @@ PARAM_HELP: dict[Any, str] = {
     ("observability_models", "heartbeat", "interval"): (
         "How often each node reports its state, in seconds. Longer intervals "
         "mean the controller works from staler information."
+    ),
+    ("observability_models", "heartbeat", "report_bytes"): (
+        "How big a status report is, in bytes. Only matters when the "
+        "controller is hosted on a device: the report then crosses real "
+        "links, so a slow or busy link genuinely delays what the controller "
+        "knows."
     ),
     ("observability_models", "heartbeat", "report_delay"): (
         "How long a report takes to reach the controller, in seconds. So the "

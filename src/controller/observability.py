@@ -77,18 +77,54 @@ class HeartbeatObservability(ObservabilityModel):
     the world it was configured with.
     """
 
-    def __init__(self, *, interval: float, report_delay: float = 0.0) -> None:
+    def __init__(
+        self,
+        *,
+        interval: float,
+        report_delay: float = 0.0,
+        report_bytes: float = 512.0,
+    ) -> None:
         if interval <= 0:
             raise ValueError(f"heartbeat interval must be > 0, got {interval}")
         if report_delay < 0:
             raise ValueError(
                 f"heartbeat report_delay must be >= 0, got {report_delay}"
             )
+        if report_bytes < 0:
+            raise ValueError(f"report_bytes must be >= 0, got {report_bytes}")
         self.interval = float(interval)
         self.report_delay = float(report_delay)
+        self.report_bytes = float(report_bytes)
+        # Set by the Environment when the controller is hosted on a node:
+        # reports then cross real links instead of taking a flat constant.
+        self._host_id: str | None = None
+        self._network = None
         self._visible: dict[str, NodeState] = {}
         self._pending: dict[str, list[tuple[float, NodeState]]] = {}
         self._next_report: dict[str, float] = {}
+
+    def locate(self, host_id: str, network) -> None:
+        """Tell this model where its controller physically sits.
+
+        Once located, a report's travel time is the network's own delay
+        from the reporting node to the host, so staleness becomes a
+        consequence of the topology - a congested or slow link genuinely
+        delays what the controller knows - rather than a number typed into
+        a config. ``report_delay`` stays as an additive floor for the
+        node-side processing that happens before anything is sent.
+        """
+        self._host_id = host_id
+        self._network = network
+
+    def _travel_time(self, node_id: str) -> float:
+        """How long this node's report takes to reach the controller."""
+        if self._network is None or self._host_id is None:
+            return self.report_delay
+        if node_id == self._host_id:
+            return self.report_delay  # the controller reads its own host locally
+        return self.report_delay + self._network.expected_control_delay(
+            node_id, self._host_id, self.report_bytes
+        )
 
     def attach(self, runtimes: list[NodeRuntime]) -> None:
         super().attach(runtimes)
@@ -109,7 +145,7 @@ class HeartbeatObservability(ObservabilityModel):
                 if rt.failure_state != "failed":
                     snapshot = rt.snapshot(scheduled)  # current state, scheduled label
                     self._pending[node_id].append(
-                        (scheduled + self.report_delay, snapshot)
+                        (scheduled + self._travel_time(node_id), snapshot)
                     )
                 self._next_report[node_id] = scheduled + self.interval
             # Promote reports that have arrived at the controller.

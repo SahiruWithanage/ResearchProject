@@ -148,6 +148,17 @@ class FluidLinkNetworkModel(NetworkModel):
         spec = self._resolve_spec(from_id, to_id)
         return self._deterministic_delay(spec, payload_bytes, from_id, to_id, t)
 
+    def expected_control_delay(
+        self, source_id: str, target_id: str, payload_bytes: float
+    ) -> float:
+        """Control messages ride the same links as data, at t=0 conditions.
+
+        Evaluated at t=0 rather than "now" so that a report's travel time
+        stays a deterministic property of the topology. Time-varying models
+        may override this if they want control traffic to feel the weather.
+        """
+        return self._expected_delay(source_id, target_id, payload_bytes, 0.0)
+
     def _deterministic_delay(
         self,
         spec: _LinkSpec,

@@ -61,6 +61,10 @@ class ControllerConfig:
     allocator: AllocatorConfig
     manages: list[str]
     parent: str | None = None  # parent controller id, or None for a root
+    # Node this controller physically runs on. Gives it a place in the
+    # topology, so its control traffic can travel real links instead of
+    # a flat constant. None = the legacy placeless controller.
+    host: str | None = None
     observability: ObservabilityConfig = field(default_factory=ObservabilityConfig)
     scheduling_delay: float = 0.0  # seconds between decision and dispatch
 

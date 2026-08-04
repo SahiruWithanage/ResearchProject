@@ -47,6 +47,7 @@ class Controller:
         parent_id: str | None = None,
         observability: ObservabilityModel | None = None,
         scheduling_delay: float = 0.0,
+        host: str | None = None,
     ) -> None:
         if not managed_nodes:
             raise ValueError(f"controller {id!r} has no managed nodes")
@@ -59,6 +60,8 @@ class Controller:
         self.allocator_type = allocator_type
         self.managed_nodes = managed_nodes
         self.parent_id = parent_id
+        # Node this controller physically runs on, or None if it is placeless.
+        self.host = host
         self.observability = observability or PerfectObservability()
         self.observability.attach(managed_nodes)
         self.scheduling_delay = float(scheduling_delay)
