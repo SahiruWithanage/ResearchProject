@@ -36,7 +36,9 @@ def _task(source: str = "node_1", data_size: float = 1e6) -> Task:
     )
 
 
-def _state(node_id: str, queue: int) -> NodeState:
+def _state(node_id: str, queue: int, work: float | None = None) -> NodeState:
+    # queued_work carries the backlog in work units; default to one unit per
+    # queued task so a queue of N behaves like N unit-sized tasks.
     return NodeState(
         time_step=0.0,
         node_id=node_id,
@@ -44,6 +46,7 @@ def _state(node_id: str, queue: int) -> NodeState:
         active_tasks=0,
         cpu_utilisation=0.0,
         memory_utilisation=0.0,
+        queued_work=float(queue) if work is None else work,
     )
 
 
@@ -61,6 +64,39 @@ def test_load_aware_picks_shortest_queue() -> None:
     }
     ctx = decision_context(_task(), candidates, states)
     assert a.allocate(ctx) == "node_2"
+
+
+def test_load_aware_measures_backlog_in_seconds_not_task_count() -> None:
+    """One long job beats several short ones: load is work, not headcount."""
+    a = LoadAwareAllocator()
+    few_but_heavy = _node("few_but_heavy")
+    many_but_light = _node("many_but_light")
+    states = {
+        # 1 task holding 40 work units vs 8 tasks holding 8 between them
+        "few_but_heavy": _state("few_but_heavy", queue=1, work=40.0),
+        "many_but_light": _state("many_but_light", queue=8, work=8.0),
+    }
+    ctx = decision_context(_task(), [few_but_heavy, many_but_light], states)
+    assert a.allocate(ctx) == "many_but_light"
+
+
+def test_load_aware_accounts_for_node_speed() -> None:
+    """Equal backlogs, unequal machines: the faster node clears sooner."""
+    a = LoadAwareAllocator()
+    slow = EdgeNode(
+        node_id="slow", node_type="helper", cpu_capacity=1.0,
+        memory_capacity=8.0, tier="edge", cpu_speed=0.5,
+    )
+    fast = EdgeNode(
+        node_id="fast", node_type="helper", cpu_capacity=4.0,
+        memory_capacity=8.0, tier="edge", cpu_speed=2.0,
+    )
+    states = {
+        "slow": _state("slow", queue=2, work=10.0),   # 10 / 0.5  = 20 s
+        "fast": _state("fast", queue=6, work=10.0),   # 10 / 8.0  = 1.25 s
+    }
+    ctx = decision_context(_task(), [slow, fast], states)
+    assert a.allocate(ctx) == "fast"
 
 
 def test_latency_first_picks_lower_uplink_delay() -> None:

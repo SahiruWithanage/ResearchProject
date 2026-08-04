@@ -27,7 +27,9 @@ def _node(node_id: str, **overrides) -> EdgeNode:
     return EdgeNode(**fields)
 
 
-def _state(node_id: str, queue: int) -> NodeState:
+def _state(node_id: str, queue: int, work: float | None = None) -> NodeState:
+    # queued_work carries the backlog in work units; default to one unit per
+    # queued task so a queue of N behaves like N unit-sized tasks.
     return NodeState(
         time_step=0.0,
         node_id=node_id,
@@ -35,6 +37,7 @@ def _state(node_id: str, queue: int) -> NodeState:
         active_tasks=0,
         cpu_utilisation=0.0,
         memory_utilisation=0.0,
+        queued_work=float(queue) if work is None else work,
     )
 
 

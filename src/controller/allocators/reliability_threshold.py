@@ -40,16 +40,19 @@ class ReliabilityThresholdAllocator(Allocator):
         pool = trusted or list(context.candidates)
 
         source = context.task.source_node_id or ""
+        estimator = context.estimator
 
-        def sort_key(node: EdgeNode) -> tuple[int, float, str]:
+        # Same ordering as load_aware, so the only difference between the two
+        # baselines is the reliability filter - which is what this baseline
+        # is meant to isolate.
+        def sort_key(node: EdgeNode) -> tuple[float, float, str]:
             state = states[node.node_id]
+            backlog = estimator.queue_wait_proxy(state, context.task, node)
             uplink = (
-                context.estimator.uplink_delay(
-                    source, node.node_id, context.task, context.t
-                )
+                estimator.uplink_delay(source, node.node_id, context.task, context.t)
                 if source
                 else 0.0
             )
-            return (state.queue_length, uplink, node.node_id)
+            return (backlog, uplink, node.node_id)
 
         return min(pool, key=sort_key).node_id

@@ -44,6 +44,7 @@ def _task(task_id: str = "t1") -> Task:
 
 
 def _state(node_id: str, queue: int = 0, reliability: float = 1.0) -> NodeState:
+    # one work unit per queued task, so backlog ordering matches queue order
     return NodeState(
         time_step=0.0,
         node_id=node_id,
@@ -52,6 +53,7 @@ def _state(node_id: str, queue: int = 0, reliability: float = 1.0) -> NodeState:
         cpu_utilisation=0.0,
         memory_utilisation=0.0,
         reliability_score=reliability,
+        queued_work=float(queue),
     )
 
 

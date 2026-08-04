@@ -54,20 +54,31 @@ class CompletionEstimator:
         """
         return task.cpu_demand / node.cpu_speed
 
+    @staticmethod
+    def throughput(node: EdgeNode) -> float:
+        """Work units this node clears per second at full occupancy."""
+        workers = max(1, math.floor(node.cpu_capacity))
+        return workers * node.cpu_speed
+
     def queue_wait_proxy(
         self,
         state: NodeState,
         task: Task,
         node: EdgeNode,
     ) -> float:
-        """Rough queue-wait estimate: tasks ahead / node throughput.
+        """How long the work already on this node takes to clear.
 
-        Throughput is ``workers * cpu_speed`` work units per second; each
-        queued task is assumed to carry this task's ``cpu_demand``.
+        Uses the node's reported *remaining work*, not its task count. The
+        old version assumed every queued task was the same size as the one
+        being placed, which under a mixed workload underestimated the wait
+        for small tasks and overestimated it for large ones - a bias that
+        would have been silently corrected by any allocator with better
+        queue reasoning, making it look smarter than it was.
+
+        ``task`` is unused now but kept in the signature: per-task
+        estimates (priority, class-aware queueing) are a natural extension.
         """
-        workers = max(1, math.floor(node.cpu_capacity))
-        service = task.cpu_demand / (workers * node.cpu_speed)
-        return state.queue_length * service
+        return state.queued_work / self.throughput(node)
 
     def estimated_completion(
         self,

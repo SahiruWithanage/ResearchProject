@@ -272,7 +272,8 @@ def test_state_log_has_explicit_header(tmp_path: Path, raw_config) -> None:
     header = _read_lines(logger.state_log_path)[0]
     expected = (
         "time_step,node_id,queue_length,active_tasks,"
-        "cpu_utilisation,memory_utilisation,reliability_score,failure_state"
+        "cpu_utilisation,memory_utilisation,reliability_score,failure_state,"
+        "queued_work"
     )
     assert header == expected
 

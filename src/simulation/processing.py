@@ -147,6 +147,14 @@ class NodeRuntime:
             memory_utilisation=memory_util,
             reliability_score=self.reliability_score,
             failure_state=self.failure_state,
+            queued_work=self.queued_work,
+        )
+
+    @property
+    def queued_work(self) -> float:
+        """Remaining work units held by this node (active + waiting)."""
+        return sum(e.remaining_work for e in self._active) + sum(
+            task.cpu_demand for task in self._queue
         )
 
     def _memory_used(self) -> float:

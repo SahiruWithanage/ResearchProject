@@ -37,6 +37,7 @@ _STATE_FIELDS: tuple[str, ...] = (
     "memory_utilisation",
     "reliability_score",
     "failure_state",
+    "queued_work",
 )
 
 
@@ -115,6 +116,7 @@ class RunLogger:
                         _fmt_float(s.memory_utilisation),
                         _fmt_float(s.reliability_score),
                         s.failure_state,
+                        _fmt_float(s.queued_work),
                     ]
                 )
 
