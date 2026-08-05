@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import platform
 import subprocess
 import sys
@@ -31,6 +32,13 @@ _TRACKED_PACKAGES = ("numpy", "pyyaml", "flask", "pytest")
 
 
 def _git(args: list[str], repo: Path) -> str | None:
+    """Raw git output, or None if git could not answer.
+
+    Empty output is a real answer, not a failure: `git status --porcelain`
+    prints nothing for a clean tree. Collapsing the two would make a clean
+    checkout indistinguishable from "we could not tell", which is exactly
+    the thing a reproducibility record must not do.
+    """
     try:
         out = subprocess.run(
             ["git", *args],
@@ -42,7 +50,7 @@ def _git(args: list[str], repo: Path) -> str | None:
         return None
     if out.returncode != 0:
         return None
-    return out.stdout.decode("utf-8", errors="replace").strip() or None
+    return out.stdout.decode("utf-8", errors="replace").strip()
 
 
 def _code_state(repo: Path) -> dict[str, Any]:
@@ -53,10 +61,46 @@ def _code_state(repo: Path) -> dict[str, Any]:
     """
     status = _git(["status", "--porcelain"], repo)
     return {
-        "git_commit": _git(["rev-parse", "HEAD"], repo),
-        "git_branch": _git(["rev-parse", "--abbrev-ref", "HEAD"], repo),
+        "git_commit": _git(["rev-parse", "HEAD"], repo) or None,
+        "git_branch": _git(["rev-parse", "--abbrev-ref", "HEAD"], repo) or None,
+        # "" means a clean tree; None means git could not be consulted.
         "git_dirty": bool(status) if status is not None else None,
     }
+
+
+def _cpu_name() -> str | None:
+    """A human-readable CPU name, best effort.
+
+    ``platform.processor()`` returns something like "Intel64 Family 6 Model
+    170 Stepping 4" on Windows, which is unreportable in a thesis. Decision
+    time will be quoted against this machine, so the readable name earns
+    its place. Falls back to the cryptic string rather than failing.
+    """
+    try:
+        if sys.platform == "win32":
+            import winreg
+
+            key = winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"HARDWARE\DESCRIPTION\System\CentralProcessor\0",
+            )
+            with key:
+                return str(winreg.QueryValueEx(key, "ProcessorNameString")[0]).strip()
+        if sys.platform == "darwin":
+            out = subprocess.run(
+                ["sysctl", "-n", "machdep.cpu.brand_string"],
+                capture_output=True,
+                timeout=5,
+            )
+            if out.returncode == 0:
+                return out.stdout.decode("utf-8", errors="replace").strip()
+        else:
+            for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+                if line.lower().startswith("model name"):
+                    return line.split(":", 1)[1].strip()
+    except Exception:
+        pass
+    return platform.processor() or None
 
 
 def _environment() -> dict[str, Any]:
@@ -69,8 +113,12 @@ def _environment() -> dict[str, Any]:
     return {
         "python": sys.version.split()[0],
         "platform": platform.platform(),
+        # "AMD64" is the name of the 64-bit x86 instruction set, which AMD
+        # designed and Intel licensed - not the chip's vendor. Intel CPUs
+        # report AMD64 too.
         "machine": platform.machine(),
-        "processor": platform.processor() or None,
+        "cpu": _cpu_name(),
+        "cpu_logical_cores": os.cpu_count(),
         "packages": packages,
     }
 
