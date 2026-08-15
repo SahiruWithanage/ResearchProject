@@ -226,6 +226,16 @@ def build_schema() -> dict[str, Any]:
         },
         "field_help": FIELD_HELP,
         "network_profiles": _jsonable(_BUILTIN_PROFILES),
+        # None means unlimited (JSON has no Infinity); the map uses these to
+        # show when a pair has been dragged out of range.
+        "profile_ranges": {
+            name: (
+                None
+                if spec.get("max_range_km", float("inf")) == float("inf")
+                else spec["max_range_km"]
+            )
+            for name, spec in _BUILTIN_PROFILES.items()
+        },
         "node_fields": sorted(_PROFILE_FIELDS),
         "dist_capable_fields": _DIST_CAPABLE_FIELDS,
         "rate_pattern_fields": _RATE_PATTERN_FIELDS,

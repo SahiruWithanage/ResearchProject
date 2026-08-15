@@ -26,13 +26,25 @@ from src.network.base import NetworkModel
 
 _BITS_PER_BYTE = 8.0
 
-# Built-in profile defaults (bits/s, seconds). Override via YAML.
+_INF = float("inf")
+
+# Built-in profile defaults (bits/s, seconds, kilometres). Override via YAML.
+#
+# `max_range_km` is how far the medium physically carries. Wireless has a
+# real limit; a cable's length is an installation choice, so wired profiles
+# are unlimited. Range only bites when nodes carry a `location` - without
+# geometry every pair is at distance zero and therefore in range.
 _BUILTIN_PROFILES: dict[str, dict[str, float]] = {
-    "lan": {"bandwidth_bps": 1.0e9, "base_latency_s": 0.001, "jitter_s": 0.0002},
-    "wifi": {"bandwidth_bps": 50.0e6, "base_latency_s": 0.010, "jitter_s": 0.005},
-    "5g": {"bandwidth_bps": 100.0e6, "base_latency_s": 0.020, "jitter_s": 0.008},
-    "instant": {"bandwidth_bps": float("inf"), "base_latency_s": 0.0, "jitter_s": 0.0},
-    "custom": {"bandwidth_bps": 1.0e9, "base_latency_s": 0.001, "jitter_s": 0.0},
+    "lan": {"bandwidth_bps": 1.0e9, "base_latency_s": 0.001, "jitter_s": 0.0002,
+            "max_range_km": _INF},
+    "wifi": {"bandwidth_bps": 50.0e6, "base_latency_s": 0.010, "jitter_s": 0.005,
+             "max_range_km": 0.15},
+    "5g": {"bandwidth_bps": 100.0e6, "base_latency_s": 0.020, "jitter_s": 0.008,
+           "max_range_km": 2.0},
+    "instant": {"bandwidth_bps": _INF, "base_latency_s": 0.0, "jitter_s": 0.0,
+                "max_range_km": _INF},
+    "custom": {"bandwidth_bps": 1.0e9, "base_latency_s": 0.001, "jitter_s": 0.0,
+               "max_range_km": _INF},
 }
 
 
@@ -41,6 +53,7 @@ class _LinkSpec:
     bandwidth_bps: float
     base_latency_s: float
     jitter_s: float
+    max_range_km: float = _INF
 
 
 @network_models.register("fluid_link")
@@ -267,8 +280,29 @@ class FluidLinkNetworkModel(NetworkModel):
         return self._profile_specs[self.default_profile]
 
     def can_reach(self, source_id: str, target_id: str) -> bool:
-        """False when this pair was explicitly given no connection."""
-        return (source_id, target_id) not in self._unreachable
+        """False when the pair was severed, or is simply too far apart.
+
+        Out of range is a *reachability* fact, not a very slow link: a
+        wireless signal that does not arrive cannot be waited out. It
+        therefore joins the eligibility filter, so an out-of-range node is
+        never chosen and a task with nowhere left to go is logged as lost.
+        """
+        if (source_id, target_id) in self._unreachable:
+            return False
+        if source_id == target_id:
+            return True  # a node always reaches itself
+        km = self._distance_km(source_id, target_id)
+        if km <= 0.0:
+            return True  # no geometry configured
+        return km <= self._resolve_spec(source_id, target_id).max_range_km
+
+    def range_km(self, source_id: str, target_id: str) -> float:
+        """How far this pair's medium carries. Used by the UI."""
+        return self._resolve_spec(source_id, target_id).max_range_km
+
+    def distance_km(self, source_id: str, target_id: str) -> float:
+        """Straight-line distance between two nodes, 0 if unknown."""
+        return self._distance_km(source_id, target_id)
 
     def _register_link(self, raw: dict[str, Any]) -> None:
         from_id = str(raw["from"])
@@ -312,6 +346,7 @@ class FluidLinkNetworkModel(NetworkModel):
                 bandwidth_bps=float(base.get("bandwidth_bps", 1.0e9)),
                 base_latency_s=float(base.get("base_latency_s", 0.0)),
                 jitter_s=float(base.get("jitter_s", 0.0)),
+                max_range_km=float(base.get("max_range_km", _INF)),
             )
         if "custom" not in specs:
             specs["custom"] = _LinkSpec(

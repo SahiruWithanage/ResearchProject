@@ -173,8 +173,13 @@ def test_path_loss_reduces_bandwidth_with_distance() -> None:
 
 
 def test_path_loss_never_kills_a_link_silently() -> None:
-    """Distance degrades a link; only `profile: none` severs one."""
+    """Within range, distance degrades a link rather than ending it.
+
+    Uses lan, whose range is unlimited, so this isolates the path-loss
+    floor from the separate question of whether the medium reaches at all.
+    """
     net = _net(
+        default_profile="lan",
         positions={"a": (0.0, 0.0), "b": (10_000.0, 0.0)},
         path_loss_exponent=4.0,
         min_bandwidth_fraction=0.05,
@@ -195,6 +200,66 @@ def test_distance_makes_a_far_node_genuinely_worse() -> None:
     near = net.expected_uplink_delay("src", "near", _task(), 0.0)
     far = net.expected_uplink_delay("src", "far", _task(), 0.0)
     assert far > near
+
+
+# ---------------------------------------------------------------------------
+# Range - wireless stops carrying at some distance
+# ---------------------------------------------------------------------------
+
+
+def test_wireless_has_a_range_and_wired_does_not() -> None:
+    net = _net()
+    assert net._profile_specs["wifi"].max_range_km == pytest.approx(0.15)
+    assert net._profile_specs["5g"].max_range_km == pytest.approx(2.0)
+    assert net._profile_specs["lan"].max_range_km == float("inf")
+
+
+def test_a_node_beyond_wifi_range_is_unreachable() -> None:
+    close = _net(positions={"a": (0.0, 0.0), "b": (0.10, 0.0)})
+    far = _net(positions={"a": (0.0, 0.0), "b": (0.20, 0.0)})
+    assert close.can_reach("a", "b") is True
+    assert far.can_reach("a", "b") is False
+
+
+def test_range_does_nothing_without_geometry() -> None:
+    """Configs with no locations are untouched: everything is at distance 0."""
+    assert _net().can_reach("a", "b") is True
+
+
+def test_a_node_always_reaches_itself() -> None:
+    net = _net(positions={"a": (0.0, 0.0)})
+    assert net.can_reach("a", "a") is True
+
+
+def test_range_can_be_overridden_per_profile() -> None:
+    net = _net(
+        profiles={"wifi": {"max_range_km": 1.0}},
+        positions={"a": (0.0, 0.0), "b": (0.5, 0.0)},
+    )
+    assert net.can_reach("a", "b") is True
+
+
+def test_out_of_range_task_is_lost_not_stranded() -> None:
+    """The source cannot run this type and the only helper is too far, so
+    the task must be recorded as lost rather than sitting in transit."""
+    raw = deepcopy(BASE)
+    raw["nodes"][0]["accepts_task_types"] = ["other"]  # cannot run its own work
+    raw["nodes"][0]["source"]["generator"]["task_type"] = "compute"
+    raw["nodes"][1]["location"] = [5.0, 0.0]  # far beyond wifi's 150 m
+    result = Environment(parse_config(raw)).run()
+    assert result.outcomes
+    assert all(o.task_lost for o in result.outcomes)
+    assert all(o.selected_node is None for o in result.outcomes)
+
+
+def test_moving_a_node_into_range_restores_it() -> None:
+    raw = deepcopy(BASE)
+    raw["nodes"][0]["accepts_task_types"] = ["other"]
+    raw["nodes"][0]["source"]["generator"]["task_type"] = "compute"
+    raw["nodes"][1]["location"] = [0.05, 0.0]  # within 150 m
+    result = Environment(parse_config(raw)).run()
+    assert not [o for o in result.outcomes if o.task_lost]
+    assert {o.selected_node for o in result.outcomes} == {"far"}
 
 
 # ---------------------------------------------------------------------------

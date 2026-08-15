@@ -1330,6 +1330,94 @@ function openLinkModal(a, b) {
   });
 }
 
+/**
+ * Turn geometry on or off, and set how much ground the map covers.
+ *
+ * Without locations the map is a diagram and dragging is cosmetic. With
+ * them the map is a plan: a node's position IS its position, distances
+ * appear on the lines, and a wireless link dragged past its range dies.
+ */
+function openGeometryModal() {
+  openModal("distance and positions", () => {
+    const wrap = el("div", {});
+    const on = anyNodeHasLocation();
+
+    wrap.append(
+      el("p", {
+        class: "hint",
+        text: on
+          ? "Devices have real positions. Drag one on the map and its distance " +
+            "to everything else changes with it."
+          : "Devices have no positions yet, so the map is only a diagram and " +
+            "dragging rearranges it without meaning anything.",
+      })
+    );
+
+    const fields = el("div", { class: "fields" });
+    fields.append(
+      field(
+        "map covers (km across)",
+        numInput(mapExtentKm, (v) => {
+          if (!v || v <= 0) return;
+          mapExtentKm = v;
+          localStorage.setItem("simui-map-extent", String(v));
+          rebuild();
+        }),
+        {
+          help:
+            "How much ground the full width of the map represents. Smaller " +
+            "means finer control over short distances.",
+        }
+      )
+    );
+    wrap.append(fields);
+
+    wrap.append(
+      el("button", {
+        class: "tiny",
+        text: on ? "remove all positions" : "give every device a position",
+        onclick: () => {
+          if (on) {
+            for (const n of cfg.nodes || []) delete n.location;
+          } else {
+            // Seed from wherever things already sit on the map, so turning
+            // this on does not scatter the layout.
+            defaultPositions();
+            for (const n of cfg.nodes || []) {
+              n.location = pointToKm(layout[`node:${n.id}`] || { x: 400, y: 240 });
+            }
+          }
+          rebuild();
+        },
+      })
+    );
+
+    if (on) {
+      wrap.append(el("h3", { text: "how far each medium carries" }));
+      const t = el("table", { class: "mini" });
+      t.append(el("tr", {}, el("th", { text: "profile" }), el("th", { text: "range" })));
+      for (const [name, r] of Object.entries(schema.profile_ranges || {})) {
+        t.append(
+          el("tr", {},
+            el("td", { text: name }),
+            el("td", { text: r === null ? "unlimited (wired)" : fmtKm(r) }))
+        );
+      }
+      wrap.append(t);
+      wrap.append(
+        el("p", {
+          class: "hint",
+          text:
+            "A pair further apart than this cannot reach each other at all, " +
+            "so that node stops being a candidate. Override a range under " +
+            "network... -> profiles, e.g. {\"wifi\": {\"max_range_km\": 0.3}}.",
+        })
+      );
+    }
+    return wrap;
+  });
+}
+
 function openFromKey(key) {
   if (key.startsWith("node:")) {
     const i = (cfg.nodes || []).findIndex((n) => n.id === key.slice(5));
@@ -1356,11 +1444,64 @@ function loadLayout() {
   }
 }
 
+/* ---- geometry: km <-> map units --------------------------------------- *
+ * The map is 800 x 480 units. `mapExtentKm` is how many kilometres the full
+ * width represents, so a node's `location` (in km) has a unique place on the
+ * map and dragging it writes a real distance back into the config.
+ * Nodes without a location keep the old cosmetic behaviour.
+ */
+let mapExtentKm = Number(localStorage.getItem("simui-map-extent") || 1.0);
+const MAP_W = 800, MAP_H = 480;
+
+function kmPerUnit() {
+  return mapExtentKm / MAP_W;
+}
+
+function kmToPoint(loc) {
+  return { x: loc[0] / kmPerUnit(), y: MAP_H / 2 - loc[1] / kmPerUnit() };
+}
+
+function pointToKm(p) {
+  return [
+    +(p.x * kmPerUnit()).toFixed(4),
+    +((MAP_H / 2 - p.y) * kmPerUnit()).toFixed(4),
+  ];
+}
+
+/** Distances at edge scale read better in metres. */
+function fmtKm(km) {
+  if (km === null || km === undefined) return "";
+  return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(2)} km`;
+}
+
+function anyNodeHasLocation() {
+  return (cfg.nodes || []).some((n) => Array.isArray(n.location));
+}
+
+/** Straight-line distance in km, or null when either end has no location. */
+function pairDistanceKm(aId, bId) {
+  const a = (cfg.nodes || []).find((n) => n.id === aId);
+  const b = (cfg.nodes || []).find((n) => n.id === bId);
+  if (!a || !b || !Array.isArray(a.location) || !Array.isArray(b.location)) return null;
+  return Math.hypot(a.location[0] - b.location[0], a.location[1] - b.location[1]);
+}
+
+/** How far a profile carries, in km; null means unlimited. */
+function profileRangeKm(name) {
+  const r = schema.profile_ranges || {};
+  return r[name] === undefined ? null : r[name];
+}
+
 function defaultPositions() {
   const nodes = cfg.nodes || [];
   const ctrls = cfg.controllers || [];
   nodes.forEach((n, i) => {
     const key = `node:${n.id}`;
+    // A real location wins: the map then shows actual geometry.
+    if (Array.isArray(n.location)) {
+      layout[key] = kmToPoint(n.location);
+      return;
+    }
     if (!layout[key]) {
       const a = (2 * Math.PI * i) / Math.max(nodes.length, 1) - Math.PI / 2;
       layout[key] = { x: 400 + 300 * Math.cos(a), y: 190 + 130 * Math.sin(a) };
@@ -1380,7 +1521,7 @@ function defaultPositions() {
  * connection (wifi etc.) every other pair already uses. Lines are clickable
  * when an onClick is supplied.
  */
-function drawLinks(svg, pos, { nodes, links, defaultProfile, configured, onClick }) {
+function drawLinks(svg, pos, { nodes, links, defaultProfile, configured, onClick, distanceOf }) {
   if (!configured) return;
   const drawMesh = nodes.length <= 6; // implicit mesh only while readable
   for (let i = 0; i < nodes.length; i++) {
@@ -1400,9 +1541,17 @@ function drawLinks(svg, pos, { nodes, links, defaultProfile, configured, onClick
       const cutR = isCut(rev);
       const severed = cutF && cutR; // no route either way
 
+      // Geometry: how far apart are they, and does the medium carry that far?
+      const km = distanceOf ? distanceOf(a, b) : null;
+      const profF = (fwd && fwd.profile) || defaultProfile;
+      const profR = (rev && rev.profile) || defaultProfile;
+      const range = profileRangeKm(profF);
+      const outOfRange =
+        !severed && km !== null && range !== null && km > range;
+
       svg.append(
         svgEl("line", {
-          class: severed
+          class: severed || outOfRange
             ? "topo-link-cut"
             : overridden
             ? "topo-link"
@@ -1413,14 +1562,13 @@ function drawLinks(svg, pos, { nodes, links, defaultProfile, configured, onClick
       let label;
       if (severed) {
         label = "no connection";
+      } else if (outOfRange) {
+        label = `${profF} out of range (${fmtKm(km)} > ${fmtKm(range)})`;
       } else if (cutF || cutR) {
         label = cutF ? `${b} -> ${a} only` : `${a} -> ${b} only`;
-      } else if (!overridden) {
-        label = defaultProfile;
       } else {
-        const f = (fwd && fwd.profile) || defaultProfile;
-        const r = (rev && rev.profile) || defaultProfile;
-        label = f === r ? f : `${f} / ${r}`;
+        label = profF === profR ? profF : `${profF} / ${profR}`;
+        if (km !== null) label += ` · ${fmtKm(km)}`;
       }
       svg.append(
         svgEl("text", {
@@ -1433,6 +1581,11 @@ function drawLinks(svg, pos, { nodes, links, defaultProfile, configured, onClick
         const hit = svgEl("line", {
           class: "topo-hit", x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
         });
+        const tip = [`${a} <-> ${b}`, label];
+        if (km !== null && range !== null) {
+          tip.push(`${profF} carries ${fmtKm(range)}`);
+        }
+        hit.append(svgEl("title", { text: tip.join(" | ") }));
         hit.addEventListener("click", () => onClick(a, b));
         svg.append(hit);
       }
@@ -1462,6 +1615,7 @@ function drawTopology() {
     defaultProfile: cfg.network?.default_profile || "wifi",
     configured: Boolean(cfg.network),
     onClick: openLinkModal,
+    distanceOf: pairDistanceKm,
   });
 
   const draggable = [];
@@ -1524,14 +1678,27 @@ function drawTopology() {
         }
         if (moved) {
           layout[key] = svgPoint(e);
+          // Dragging a located node moves it for real: the config's
+          // `location` is the source of truth, so distances and range
+          // limits follow the map.
+          if (key.startsWith("node:")) {
+            const node = (cfg.nodes || []).find((n) => n.id === key.slice(5));
+            if (node && Array.isArray(node.location)) {
+              node.location = pointToKm(layout[key]);
+            }
+          }
           drawTopology();
         }
       };
       const up = () => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", up);
-        if (moved) localStorage.setItem(layoutKey(), JSON.stringify(layout));
-        else openFromKey(key);
+        if (moved) {
+          localStorage.setItem(layoutKey(), JSON.stringify(layout));
+          if (key.startsWith("node:")) dirty(); // a real move changes the config
+        } else {
+          openFromKey(key);
+        }
       };
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", up);
@@ -2419,6 +2586,7 @@ function bindHeader() {
   $("#map-add-controller").addEventListener("click", () => openControllerModal(addController()));
   $("#map-network").addEventListener("click", () => openModal("network", networkCard));
   $("#map-sim").addEventListener("click", () => openModal("simulation settings", simCard));
+  $("#map-geo").addEventListener("click", openGeometryModal);
 
   $("#modal-close").addEventListener("click", closeModal);
   $("#modal").addEventListener("click", (e) => {

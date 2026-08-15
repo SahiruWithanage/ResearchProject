@@ -33,6 +33,7 @@
         <button id="map-add-controller" class="tiny">+ controller</button>
         <button id="map-network" class="tiny">network&hellip;</button>
         <button id="map-sim" class="tiny">simulation&hellip;</button>
+        <button id="map-geo" class="tiny" title="give devices real positions, so dragging sets distance">distance&hellip;</button>
         <span class="spacer"></span>
         <button id="btn-validate">Validate</button>
         <button id="btn-run" class="primary">Run simulation</button>
@@ -41,10 +42,12 @@
       <div id="topology-box">
         <svg id="topology" viewBox="0 0 800 480" preserveAspectRatio="xMidYMid meet"></svg>
         <div class="hint">Click a device to configure it, click a line to change
-        that pair's link (both directions); drag devices to arrange (cosmetic,
-        saved in your browser). Solid lines = link overrides, dotted lines = the
-        default profile (e.g. wifi) every other pair uses, dashed amber =
-        controller manages.</div>
+        that pair's link (both directions). Solid lines = link overrides, dotted
+        = the default profile every other pair uses, dashed amber = controller
+        manages, <b>red = no route</b> (severed, or too far for the medium).
+        Turn on <b>distance&hellip;</b> to give devices real positions: dragging
+        then sets actual distances, lines show how far apart things are, and a
+        wireless link that is dragged past its range goes red.</div>
       </div>
       <div id="validate-result"></div>
       <div id="run-result"></div>
