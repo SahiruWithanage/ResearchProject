@@ -4,6 +4,7 @@ from .base import Allocator
 from .latency_first import LatencyFirstAllocator
 from .load_aware import LoadAwareAllocator
 from .local_helper import LocalFirstHelperOffloadAllocator
+from .random_choice import RandomAllocator
 from .reliability_threshold import ReliabilityThresholdAllocator
 from .weighted_score import WeightedScoreAllocator
 
@@ -12,6 +13,7 @@ __all__ = [
     "LatencyFirstAllocator",
     "LoadAwareAllocator",
     "LocalFirstHelperOffloadAllocator",
+    "RandomAllocator",
     "ReliabilityThresholdAllocator",
     "WeightedScoreAllocator",
 ]

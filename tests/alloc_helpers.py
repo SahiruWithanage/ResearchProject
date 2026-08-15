@@ -17,6 +17,7 @@ def decision_context(
     candidates: list[EdgeNode],
     states: dict[str, NodeState],
     t: float = 0.0,
+    rng=None,
 ) -> DecisionContext:
     return DecisionContext(
         task=task,
@@ -24,4 +25,5 @@ def decision_context(
         states=states,
         t=t,
         estimator=instant_estimator(),
+        rng=rng,
     )

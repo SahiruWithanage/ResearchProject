@@ -34,6 +34,12 @@ PLUGIN_HELP: dict[str, dict[str, str]] = {
             "queue wait, compute speed, energy) and pick the lowest. With the "
             "default weights this means the earliest expected finish time."
         ),
+        "random": (
+            "Pick any node that could take the task, at random. Nobody would "
+            "run this for real: it is the reference point at the bottom of "
+            "the scale, so you can tell whether a strategy's score is "
+            "genuinely good or barely better than guessing."
+        ),
         "reliability_threshold": (
             "Ignore nodes whose reliability score has dropped below your "
             "threshold, then balance load among the rest. Falls back to using "

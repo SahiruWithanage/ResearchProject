@@ -44,11 +44,17 @@ class Environment:
         self._return_transit = TransitQueue()  # downlink: results going home
 
         # One SeedSequence feeds every random stream. Sources take children
-        # 0..n-1 (stable spawn keys), the network takes child n; spawning from
-        # separate SeedSequence objects would hand out colliding streams.
+        # 0..n-1 (stable spawn keys), the network takes child n, and the
+        # allocators take child n+1; spawning from separate SeedSequence
+        # objects would hand out colliding streams.
+        #
+        # The allocators get their own child precisely so a strategy that
+        # draws randomness (the random floor) cannot shift the arrival or
+        # jitter streams and quietly change the world it is being compared in.
         seed_seq = np.random.SeedSequence(config.seed)
         source_nodes = [n for n in config.nodes if n.type == "source"]
-        sub_seeds = seed_seq.spawn(len(source_nodes) + 1)
+        sub_seeds = seed_seq.spawn(len(source_nodes) + 2)
+        self._allocator_seed = sub_seeds[len(source_nodes) + 1]
 
         self._network = self._build_network(config, sub_seeds[len(source_nodes)])
         self._estimator = CompletionEstimator(self._network)
@@ -102,6 +108,7 @@ class Environment:
                 observability=observability,
                 scheduling_delay=ctrl_cfg.scheduling_delay,
                 host=ctrl_cfg.host,
+                rng=np.random.default_rng(self._allocator_seed.spawn(1)[0]),
             )
             self.controllers[ctrl.id] = ctrl
             for runtime in managed_runtimes:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import numpy as np
+
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
@@ -48,6 +50,7 @@ class Controller:
         observability: ObservabilityModel | None = None,
         scheduling_delay: float = 0.0,
         host: str | None = None,
+        rng: np.random.Generator | None = None,
     ) -> None:
         if not managed_nodes:
             raise ValueError(f"controller {id!r} has no managed nodes")
@@ -62,6 +65,10 @@ class Controller:
         self.parent_id = parent_id
         # Node this controller physically runs on, or None if it is placeless.
         self.host = host
+        # Dedicated stream for allocators that need randomness. Separate
+        # from the generators and the network, so drawing from it cannot
+        # shift arrivals or jitter and break the identical-world guarantee.
+        self.rng = rng
         self.observability = observability or PerfectObservability()
         self.observability.attach(managed_nodes)
         self.scheduling_delay = float(scheduling_delay)
@@ -185,6 +192,7 @@ class Controller:
             states=states,
             t=t,
             estimator=estimator,
+            rng=self.rng,
         )
         chosen_id = self.allocator.allocate(context)
 
