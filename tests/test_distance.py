@@ -157,19 +157,42 @@ def test_path_loss_is_off_by_default() -> None:
 
 
 def test_path_loss_reduces_bandwidth_with_distance() -> None:
+    # pin the onset explicitly so the arithmetic is readable
     net = _net(
+        profiles={"wifi": {"full_rate_km": 0.1, "max_range_km": 10.0}},
         positions={"a": (0.0, 0.0), "b": (1.0, 0.0)},
         path_loss_exponent=2.0,
-        path_loss_reference_km=0.1,
     )
     spec = net._resolve_spec("a", "b")
-    # 3x the reference distance, exponent 2 -> 1/9 of the rate (above the
-    # 5% floor, so this exercises the scaling rather than the clamp)
+    # 3x the onset distance, exponent 2 -> 1/9 of the rate (above the 5%
+    # floor, so this exercises the scaling rather than the clamp)
     assert net._bandwidth_at(spec, 0.3) == pytest.approx(spec.bandwidth_bps / 9.0)
-    # inside the reference distance, nothing changes
+    # within the full-rate distance, nothing changes
     assert net._bandwidth_at(spec, 0.05) == spec.bandwidth_bps
     # further away is always worse
     assert net._bandwidth_at(spec, 0.5) < net._bandwidth_at(spec, 0.3)
+
+
+def test_degradation_onset_is_a_property_of_the_medium() -> None:
+    """Wi-Fi fades within metres; a 5G cell holds its rate for hundreds."""
+    net = _net(path_loss_exponent=2.0)
+    wifi = net._profile_specs["wifi"]
+    cell = net._profile_specs["5g"]
+    assert wifi.full_rate_km == pytest.approx(0.01)
+    assert cell.full_rate_km == pytest.approx(0.1)
+    # at 50 m wifi has faded, 5g has not
+    assert net._bandwidth_at(wifi, 0.05) < wifi.bandwidth_bps
+    assert net._bandwidth_at(cell, 0.05) == cell.bandwidth_bps
+
+
+def test_profile_onset_overrides_the_global_fallback() -> None:
+    net = _net(
+        profiles={"wifi": {"full_rate_km": 0.5, "max_range_km": 5.0}},
+        path_loss_exponent=2.0,
+        path_loss_reference_km=0.01,
+    )
+    spec = net._resolve_spec("a", "b")
+    assert net._bandwidth_at(spec, 0.3) == spec.bandwidth_bps  # inside 500 m
 
 
 def test_path_loss_never_kills_a_link_silently() -> None:
@@ -209,14 +232,15 @@ def test_distance_makes_a_far_node_genuinely_worse() -> None:
 
 def test_wireless_has_a_range_and_wired_does_not() -> None:
     net = _net()
-    assert net._profile_specs["wifi"].max_range_km == pytest.approx(0.15)
-    assert net._profile_specs["5g"].max_range_km == pytest.approx(2.0)
+    # indoor industrial figures: walls, metal and machinery cut wireless hard
+    assert net._profile_specs["wifi"].max_range_km == pytest.approx(0.05)
+    assert net._profile_specs["5g"].max_range_km == pytest.approx(1.0)
     assert net._profile_specs["lan"].max_range_km == float("inf")
 
 
 def test_a_node_beyond_wifi_range_is_unreachable() -> None:
-    close = _net(positions={"a": (0.0, 0.0), "b": (0.10, 0.0)})
-    far = _net(positions={"a": (0.0, 0.0), "b": (0.20, 0.0)})
+    close = _net(positions={"a": (0.0, 0.0), "b": (0.04, 0.0)})
+    far = _net(positions={"a": (0.0, 0.0), "b": (0.08, 0.0)})
     assert close.can_reach("a", "b") is True
     assert far.can_reach("a", "b") is False
 
@@ -245,7 +269,7 @@ def test_out_of_range_task_is_lost_not_stranded() -> None:
     raw = deepcopy(BASE)
     raw["nodes"][0]["accepts_task_types"] = ["other"]  # cannot run its own work
     raw["nodes"][0]["source"]["generator"]["task_type"] = "compute"
-    raw["nodes"][1]["location"] = [5.0, 0.0]  # far beyond wifi's 150 m
+    raw["nodes"][1]["location"] = [5.0, 0.0]  # far beyond wifi's 50 m
     result = Environment(parse_config(raw)).run()
     assert result.outcomes
     assert all(o.task_lost for o in result.outcomes)
@@ -256,7 +280,7 @@ def test_moving_a_node_into_range_restores_it() -> None:
     raw = deepcopy(BASE)
     raw["nodes"][0]["accepts_task_types"] = ["other"]
     raw["nodes"][0]["source"]["generator"]["task_type"] = "compute"
-    raw["nodes"][1]["location"] = [0.05, 0.0]  # within 150 m
+    raw["nodes"][1]["location"] = [0.02, 0.0]  # within wifi's 50 m
     result = Environment(parse_config(raw)).run()
     assert not [o for o in result.outcomes if o.task_lost]
     assert {o.selected_node for o in result.outcomes} == {"far"}

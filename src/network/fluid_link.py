@@ -30,21 +30,39 @@ _INF = float("inf")
 
 # Built-in profile defaults (bits/s, seconds, kilometres). Override via YAML.
 #
-# `max_range_km` is how far the medium physically carries. Wireless has a
-# real limit; a cable's length is an installation choice, so wired profiles
-# are unlimited. Range only bites when nodes carry a `location` - without
-# geometry every pair is at distance zero and therefore in range.
+# Two distance properties belong to the *medium*, not the network as a whole:
+#
+#   max_range_km      how far it carries before the receiver cannot decode
+#   full_rate_km      how close you must be to get the advertised rate;
+#                     beyond this, path loss starts eating the bandwidth
+#
+# Radio degrades continuously and then drops out, so both are needed: with
+# only a range limit a link would run at full speed and then die at a cliff,
+# which is not how radio behaves.
+#
+# The wireless figures assume an **indoor industrial** setting - walls,
+# metal and machinery - matching the base paper's factory context. Open
+# outdoor line-of-sight would reach considerably further. These are
+# literature-typical judgements, not measurements, and are meant to be
+# swept as an experimental variable rather than treated as fact.
+#
+# Wired links are unlimited: a cable's length is an installation choice.
+# (Copper Ethernet is limited to ~100 m per segment; the base paper
+# specifies optical fibre between access points, which is what this models.)
+#
+# All of it is inert until nodes carry a `location` - without geometry every
+# pair sits at distance zero, so nothing is ever out of range or degraded.
 _BUILTIN_PROFILES: dict[str, dict[str, float]] = {
     "lan": {"bandwidth_bps": 1.0e9, "base_latency_s": 0.001, "jitter_s": 0.0002,
-            "max_range_km": _INF},
+            "max_range_km": _INF, "full_rate_km": _INF},
     "wifi": {"bandwidth_bps": 50.0e6, "base_latency_s": 0.010, "jitter_s": 0.005,
-             "max_range_km": 0.15},
+             "max_range_km": 0.05, "full_rate_km": 0.01},
     "5g": {"bandwidth_bps": 100.0e6, "base_latency_s": 0.020, "jitter_s": 0.008,
-           "max_range_km": 2.0},
+           "max_range_km": 1.0, "full_rate_km": 0.1},
     "instant": {"bandwidth_bps": _INF, "base_latency_s": 0.0, "jitter_s": 0.0,
-                "max_range_km": _INF},
+                "max_range_km": _INF, "full_rate_km": _INF},
     "custom": {"bandwidth_bps": 1.0e9, "base_latency_s": 0.001, "jitter_s": 0.0,
-               "max_range_km": _INF},
+               "max_range_km": _INF, "full_rate_km": _INF},
 }
 
 
@@ -54,6 +72,7 @@ class _LinkSpec:
     base_latency_s: float
     jitter_s: float
     max_range_km: float = _INF
+    full_rate_km: float = _INF
 
 
 @network_models.register("fluid_link")
@@ -254,20 +273,33 @@ class FluidLinkNetworkModel(NetworkModel):
         Wireless signal strength falls off with distance, and the achievable
         rate falls with it. The base paper (Zhai et al.) models this through
         a path-loss term in the Shannon rate; we apply the same shape in
-        reduced form: rate scales as ``(d / d_ref)^-path_loss_exponent``
-        beyond a reference distance, floored so a link never dies silently
-        (an unreachable pair is expressed with `profile: none`, not with a
-        bandwidth of zero).
+        reduced form: rate scales as ``(d / full_rate_km)^-exponent`` once a
+        pair is further apart than the distance at which the medium still
+        delivers its advertised rate.
 
-        Exponent 0 disables the effect, which is the default.
+        The onset distance is a property of the **medium**, so it lives on
+        the profile (Wi-Fi starts fading within metres, a 5G cell holds up
+        for hundreds). ``path_loss_reference_km`` remains as a fallback for
+        profiles that do not declare one.
+
+        The result is floored at ``min_bandwidth_fraction``: distance
+        degrades a link, and only ``max_range_km`` or ``profile: none`` ends
+        it, so a link never dies silently mid-transfer.
+
+        Exponent 0 disables the effect entirely, which is the default.
         """
+        onset = (
+            spec.full_rate_km
+            if spec.full_rate_km != float("inf")
+            else self.path_loss_reference_km
+        )
         if (
             self.path_loss_exponent <= 0.0
-            or km <= self.path_loss_reference_km
+            or km <= onset
             or spec.bandwidth_bps == float("inf")
         ):
             return spec.bandwidth_bps
-        ratio = km / self.path_loss_reference_km
+        ratio = km / onset
         factor = max(
             self.min_bandwidth_fraction, ratio ** (-self.path_loss_exponent)
         )
@@ -347,6 +379,7 @@ class FluidLinkNetworkModel(NetworkModel):
                 base_latency_s=float(base.get("base_latency_s", 0.0)),
                 jitter_s=float(base.get("jitter_s", 0.0)),
                 max_range_km=float(base.get("max_range_km", _INF)),
+                full_rate_km=float(base.get("full_rate_km", _INF)),
             )
         if "custom" not in specs:
             specs["custom"] = _LinkSpec(

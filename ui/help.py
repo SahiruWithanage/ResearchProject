@@ -212,6 +212,18 @@ FIELD_HELP: dict[str, str] = {
         "own link. lan is fast and steady, wifi and 5g are slower with more "
         "variation."
     ),
+    "max_range_km": (
+        "How far this kind of connection physically carries, in kilometres. "
+        "Two devices further apart than this cannot reach each other at all, "
+        "so neither is a candidate for the other's work. Only applies once "
+        "devices have positions."
+    ),
+    "full_rate_km": (
+        "How close two devices must be to get this connection's full speed. "
+        "Past this distance the signal weakens and bandwidth drops off. "
+        "Wi-Fi starts fading within metres; a 5G cell holds its rate for "
+        "hundreds."
+    ),
     "profiles": (
         "Advanced: override the built-in link presets, e.g. change what 'wifi' "
         "means. JSON format."
