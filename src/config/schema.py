@@ -38,6 +38,10 @@ class NodeConfig:
     accepts_task_types: tuple[str, ...] | None = None
     gpu_capacity: float = 0.0
     energy_cost_factor: float = 1.0
+    # Where this device physically sits, in kilometres, as (x, y). Optional:
+    # without it the topology has no geometry and "near" means only whatever
+    # link profile was assigned. See DESIGN.md decision 64.
+    location: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True, slots=True)

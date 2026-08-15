@@ -162,6 +162,12 @@ FIELD_HELP: dict[str, str] = {
         "Anything you set directly on the node overrides the preset."
     ),
     "tier": "A label for where this device sits, e.g. edge or cloud.",
+    "location": (
+        "Where this device physically sits, as [x, y] in kilometres. Giving "
+        "nodes locations lets the network work out real distances between "
+        "them, which adds signal travel time and (if path loss is on) weakens "
+        "far-away links. Leave it out and the topology has no geometry."
+    ),
     "cpu_capacity": (
         "How many tasks this node can work on at the same time (its number of "
         "workers). 4 means four tasks run in parallel."
@@ -312,6 +318,26 @@ PARAM_HELP: dict[Any, str] = {
     ),
     ("network_models", "trace_fluid_link", "traces"): (
         "Which recorded bandwidth file to replay on which link."
+    ),
+    ("network_models", "*", "propagation_speed_kms"): (
+        "How fast a signal travels, in km per second. The default 200,000 "
+        "is roughly light speed in fibre, which works out to about 5 "
+        "microseconds per kilometre."
+    ),
+    ("network_models", "*", "path_loss_exponent"): (
+        "How sharply a wireless link weakens with distance. 0 (the default) "
+        "turns the effect off. Around 2 is free space, 3 to 4 is typical "
+        "indoors or in a built-up area. Only applies to nodes that have a "
+        "location set."
+    ),
+    ("network_models", "*", "path_loss_reference_km"): (
+        "Distance at which a link still runs at full speed. Beyond this, "
+        "bandwidth starts dropping off."
+    ),
+    ("network_models", "*", "min_bandwidth_fraction"): (
+        "Never let distance cut bandwidth below this fraction of normal, so "
+        "a far-away link degrades rather than silently dying. Use "
+        "'no connection' on a link if you want to cut it off entirely."
     ),
     ("network_models", "*", "file"): "Path to the CSV file, relative to the project folder.",
     ("network_models", "*", "loop"): (

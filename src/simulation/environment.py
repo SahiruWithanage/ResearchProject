@@ -119,11 +119,18 @@ class Environment:
         net_cls = network_models.get(net_cfg.type)
         kwargs = dict(net_cfg.params)
         if net_cfg.type in ("fluid_link", "varying_fluid_link", "trace_fluid_link"):
+            # Node coordinates give the topology a geometry. Nodes without a
+            # `location` are simply absent, and pairs involving them fall
+            # back to distance-free behaviour.
+            positions = {
+                n.id: n.location for n in config.nodes if n.location is not None
+            }
             kwargs.update(
                 default_profile=net_cfg.default_profile,
                 profiles=net_cfg.profiles,
                 links=net_cfg.links,
                 rng=np.random.default_rng(network_seed),
+                positions=positions,
             )
         if net_cfg.type == "varying_fluid_link":
             # Stable integer entropy for the counter-based quality factors;

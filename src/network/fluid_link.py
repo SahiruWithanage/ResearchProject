@@ -14,6 +14,7 @@ missing. Set ``jitter_s: 0`` in a profile override to silence a link.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -72,7 +73,36 @@ class FluidLinkNetworkModel(NetworkModel):
         profiles: dict[str, Any] | None = None,
         links: list[dict[str, Any]] | None = None,
         rng: np.random.Generator | None = None,
+        positions: dict[str, tuple[float, float]] | None = None,
+        propagation_speed_kms: float = 200_000.0,
+        path_loss_exponent: float = 0.0,
+        path_loss_reference_km: float = 0.1,
+        min_bandwidth_fraction: float = 0.05,
     ) -> None:
+        if propagation_speed_kms <= 0:
+            raise ValueError(
+                f"propagation_speed_kms must be > 0, got {propagation_speed_kms}"
+            )
+        if path_loss_exponent < 0:
+            raise ValueError(
+                f"path_loss_exponent must be >= 0, got {path_loss_exponent}"
+            )
+        if path_loss_reference_km <= 0:
+            raise ValueError(
+                f"path_loss_reference_km must be > 0, got {path_loss_reference_km}"
+            )
+        if not 0.0 < min_bandwidth_fraction <= 1.0:
+            raise ValueError(
+                f"min_bandwidth_fraction must be in (0, 1], "
+                f"got {min_bandwidth_fraction}"
+            )
+        # Injected by the Environment from each node's `location`; empty
+        # means no geometry, which reproduces the distance-free behaviour.
+        self._positions = dict(positions or {})
+        self.propagation_speed_kms = float(propagation_speed_kms)
+        self.path_loss_exponent = float(path_loss_exponent)
+        self.path_loss_reference_km = float(path_loss_reference_km)
+        self.min_bandwidth_fraction = float(min_bandwidth_fraction)
         self.default_profile = default_profile
         self._rng = rng
         self._pair_specs: dict[tuple[str, str], _LinkSpec] = {}
@@ -167,12 +197,68 @@ class FluidLinkNetworkModel(NetworkModel):
         to_id: str,
         t: float,
     ) -> float:
-        """Latency + transfer for this payload. Subclasses may modulate by
-        time or link identity (``from_id``/``to_id``/``t`` exist for them)."""
-        transfer = 0.0 if spec.bandwidth_bps == float("inf") else (
-            payload_bytes * _BITS_PER_BYTE / spec.bandwidth_bps
+        """Latency + transfer for this payload, adjusted for distance.
+
+        Subclasses may modulate by time or link identity (``from_id`` /
+        ``to_id`` / ``t`` exist for them).
+        """
+        km = self._distance_km(from_id, to_id)
+        bandwidth = self._bandwidth_at(spec, km)
+        transfer = 0.0 if bandwidth == float("inf") else (
+            payload_bytes * _BITS_PER_BYTE / bandwidth
         )
-        return spec.base_latency_s + transfer
+        return spec.base_latency_s + self._propagation_s(km) + transfer
+
+    # ------------------------------------------------------------------
+    # Distance (optional: only active when nodes carry a `location`)
+    # ------------------------------------------------------------------
+
+    def _distance_km(self, from_id: str, to_id: str) -> float:
+        """Straight-line distance between two nodes, or 0 if unknown.
+
+        Zero means "no geometry configured", which reproduces the previous
+        distance-free behaviour exactly.
+        """
+        a = self._positions.get(from_id)
+        b = self._positions.get(to_id)
+        if a is None or b is None:
+            return 0.0
+        return math.hypot(a[0] - b[0], a[1] - b[1])
+
+    def _propagation_s(self, km: float) -> float:
+        """Time for the signal itself to cross the distance.
+
+        Second-order at edge scale - roughly 5 microseconds per kilometre in
+        fibre, against millisecond-scale latencies - but it is the honest
+        floor on how fast anything can arrive, and it dominates once a
+        distant cloud tier exists.
+        """
+        return km / self.propagation_speed_kms if km else 0.0
+
+    def _bandwidth_at(self, spec: _LinkSpec, km: float) -> float:
+        """Usable bandwidth after distance-dependent signal loss.
+
+        Wireless signal strength falls off with distance, and the achievable
+        rate falls with it. The base paper (Zhai et al.) models this through
+        a path-loss term in the Shannon rate; we apply the same shape in
+        reduced form: rate scales as ``(d / d_ref)^-path_loss_exponent``
+        beyond a reference distance, floored so a link never dies silently
+        (an unreachable pair is expressed with `profile: none`, not with a
+        bandwidth of zero).
+
+        Exponent 0 disables the effect, which is the default.
+        """
+        if (
+            self.path_loss_exponent <= 0.0
+            or km <= self.path_loss_reference_km
+            or spec.bandwidth_bps == float("inf")
+        ):
+            return spec.bandwidth_bps
+        ratio = km / self.path_loss_reference_km
+        factor = max(
+            self.min_bandwidth_fraction, ratio ** (-self.path_loss_exponent)
+        )
+        return spec.bandwidth_bps * factor
 
     def _resolve_spec(self, from_id: str, to_id: str) -> _LinkSpec:
         key = (from_id, to_id)

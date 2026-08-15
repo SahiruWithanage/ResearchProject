@@ -137,6 +137,7 @@ _PROFILE_FIELDS = frozenset(
         "accepts_task_types",
         "gpu_capacity",
         "energy_cost_factor",
+        "location",
     }
 )
 
@@ -248,6 +249,20 @@ def _parse_node(
             f"got {energy_cost_factor!r}"
         )
 
+    location_raw = raw.get("location")
+    location: tuple[float, float] | None = None
+    if location_raw is not None:
+        if (
+            not isinstance(location_raw, (list, tuple))
+            or len(location_raw) != 2
+            or not all(_is_number(v) for v in location_raw)
+        ):
+            raise ConfigError(
+                f"{where}.location must be [x, y] in kilometres, "
+                f"got {location_raw!r}"
+            )
+        location = (float(location_raw[0]), float(location_raw[1]))
+
     raw_source = raw.get("source")
     if node_type == "source":
         if raw_source is None:
@@ -275,6 +290,7 @@ def _parse_node(
         accepts_task_types=accepts,
         gpu_capacity=float(gpu_capacity),
         energy_cost_factor=float(energy_cost_factor),
+        location=location,
     )
 
 

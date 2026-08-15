@@ -46,7 +46,15 @@ _HIDDEN_PARAMS: dict[str, frozenset[str]] = {
     # default_profile / profiles / links live in the dedicated `network:`
     # YAML section, not in `network.params`.
     "network_models": frozenset(
-        {"rng", "default_profile", "profiles", "links", "variation_entropy"}
+        {
+            "rng",
+            "default_profile",
+            "profiles",
+            "links",
+            "variation_entropy",
+            # Derived from each node's `location`, not set on the network.
+            "positions",
+        }
     ),
 }
 
