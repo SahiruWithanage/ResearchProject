@@ -1789,7 +1789,9 @@ async function doRun() {
       statCard("late", s.tasks_late),
       statCard("unfinished", s.tasks_unfinished),
       statCard("median latency", `${s.median_latency_s.toFixed(3)} s`),
-      statCard("mean latency", `${s.mean_latency_s.toFixed(3)} s`),
+      statCard("p95 latency", `${s.p95_latency_s.toFixed(3)} s`),
+      statCard("offloaded", `${s.offload_ratio.toFixed(0)}%`),
+      statCard("load fairness", s.load_fairness.toFixed(3)),
       statCard("simulated", `${s.final_time.toFixed(0)} s`),
       statCard("wall clock", `${s.wall_seconds.toFixed(3)} s`)
     );
@@ -1803,10 +1805,32 @@ async function doRun() {
           `Everything else counts as a failure.`,
       })
     );
-    out.append(
-      miniTable("tasks per node", Object.entries(s.placement)),
-      miniTable("max queue per node", Object.entries(s.max_queue))
+    out.append(miniTable("tasks per node", Object.entries(s.placement)));
+    const perNode = el("table", { class: "mini" });
+    perNode.append(
+      el("tr", {},
+        el("th", { text: "node" }), el("th", { text: "avg queue" }),
+        el("th", { text: "max queue" }), el("th", { text: "avg cpu" }),
+        el("th", { text: "avg memory" }))
     );
+    for (const n of Object.keys(s.avg_queue)) {
+      perNode.append(
+        el("tr", {},
+          el("td", { text: n }),
+          el("td", { text: s.avg_queue[n].toFixed(2) }),
+          el("td", { text: s.max_queue[n] }),
+          el("td", { text: `${(s.avg_cpu_utilisation[n] * 100).toFixed(0)}%` }),
+          el("td", { text: `${(s.avg_memory_utilisation[n] * 100).toFixed(0)}%` }))
+      );
+    }
+    out.append(perNode);
+    if (s.tasks_late > 0) {
+      out.append(
+        el("div", { class: "hint",
+          text: `Late tasks missed by ${s.mean_lateness_s.toFixed(2)} s on ` +
+                `average, worst ${s.max_lateness_s.toFixed(2)} s.` })
+      );
+    }
     refreshRunsList();
   } finally {
     busy.hidden = true;
@@ -2463,14 +2487,17 @@ async function doCompare() {
 
 function cmpExportCsv() {
   if (!cmpCells) return;
-  const header = "variant,seed,tasks_generated,tasks_succeeded,tasks_lost,tasks_late,tasks_unfinished,success_rate,median_latency_s,mean_latency_s,placement";
+  const header = "variant,seed,tasks_generated,tasks_succeeded,tasks_lost,tasks_late,tasks_unfinished,success_rate,median_latency_s,p95_latency_s,mean_latency_s,mean_lateness_s,max_lateness_s,offload_ratio,load_fairness,placement";
   const lines = cmpCells.map((c) => {
     const s = c.summary;
     const placement = fmtPlacement(s.placement).replaceAll(",", ";");
     return [
       JSON.stringify(c.label), c.seed, s.tasks_generated, s.tasks_succeeded,
       s.tasks_lost, s.tasks_late, s.tasks_unfinished, s.success_rate.toFixed(2),
-      s.median_latency_s.toFixed(4), s.mean_latency_s.toFixed(4),
+      s.median_latency_s.toFixed(4), s.p95_latency_s.toFixed(4),
+      s.mean_latency_s.toFixed(4), s.mean_lateness_s.toFixed(4),
+      s.max_lateness_s.toFixed(4), s.offload_ratio.toFixed(2),
+      s.load_fairness.toFixed(4),
       JSON.stringify(placement),
     ].join(",");
   });

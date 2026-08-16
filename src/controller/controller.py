@@ -177,6 +177,8 @@ class Controller:
                 selected_node=None,
                 estimated_completion_time=None,
                 arrival_time=task.arrival_time,
+                source_node_id=task.source_node_id,
+                deadline=task.deadline,
                 task_lost=True,
                 # A dropped task definitively missed its deadline. Leaving
                 # this None would make it indistinguishable from a task that
@@ -227,6 +229,8 @@ class Controller:
             selected_node=chosen_id,
             estimated_completion_time=eta,
             arrival_time=task.arrival_time,
+            source_node_id=task.source_node_id,
+            deadline=task.deadline,
             # The payload leaves once the scheduling/orchestration overhead
             # has elapsed; the Environment dispatches from this instant.
             transfer_start=t + self.scheduling_delay,

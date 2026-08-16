@@ -170,7 +170,8 @@ def test_allocation_log_has_explicit_header(tmp_path: Path, raw_config) -> None:
     logger.write_run(result, cfg, raw)
     header = _read_lines(logger.allocation_log_path)[0]
     expected = (
-        "task_id,arrival_time,decision_time,allocator_type,selected_node,"
+        "task_id,source_node_id,arrival_time,deadline,decision_time,"
+        "allocator_type,selected_node,"
         "estimated_completion_time,transfer_start,transfer_end,compute_start,"
         "actual_completion_time,return_end,deadline_met,task_lost"
     )
@@ -193,10 +194,10 @@ def test_allocation_log_sorted_by_decision_time_then_task_id(
     logger.write_run(result, cfg, raw)
     lines = _read_lines(logger.allocation_log_path)[1:]
 
-    sort_keys: list[tuple[float, str]] = []
-    for line in lines:
-        parts = line.split(",")
-        sort_keys.append((float(parts[1]), parts[0]))
+    sort_keys = [
+        (float(row["decision_time"]), row["task_id"])
+        for row in _rows(logger.allocation_log_path)
+    ]
     assert sort_keys == sorted(sort_keys)
 
 

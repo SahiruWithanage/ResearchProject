@@ -15,7 +15,9 @@ from src.simulation.environment import EnvironmentResult
 # completion -> return.
 _ALLOC_FIELDS: tuple[str, ...] = (
     "task_id",
+    "source_node_id",
     "arrival_time",
+    "deadline",
     "decision_time",
     "allocator_type",
     "selected_node",
@@ -109,7 +111,9 @@ class RunLogger:
                 writer.writerow(
                     [
                         o.task_id,
+                        o.source_node_id or "",
                         _fmt_float(o.arrival_time),
+                        _fmt_float(o.deadline),
                         _fmt_float(o.decision_time),
                         o.allocator_type,
                         o.selected_node or "",

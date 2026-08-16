@@ -14,6 +14,13 @@ class AllocationOutcome:
     allocator_type: str
     selected_node: str | None
     estimated_completion_time: float | None
+    # Which node asked for this work. Recorded rather than parsed back out
+    # of the task id, which only worked because ids happen to be built as
+    # "<source>_<counter>".
+    source_node_id: str | None = None
+    # Absolute time this task was due. Without it the log cannot show *how
+    # late* a miss was, and deadline_met cannot be checked from the CSV.
+    deadline: float | None = None
     # When the generator emitted the task. The controller decides at the next
     # tick boundary, so decision_time - arrival_time is the wait for a
     # decision (< dt). Deadlines are measured from arrival, not decision.
