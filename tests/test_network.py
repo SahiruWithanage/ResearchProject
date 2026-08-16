@@ -10,9 +10,9 @@ from src.models import Task
 from src.network import FluidLinkNetworkModel, InstantNetworkModel
 
 
-def _task(data_size: float = 1_000_000.0) -> Task:
+def _task(data_size: float = 1_000_000.0, task_id: str = "t_1") -> Task:
     return Task(
-        task_id="t_1",
+        task_id=task_id,
         arrival_time=0.0,
         task_type="compute",
         data_size=data_size,
@@ -122,10 +122,52 @@ def test_expected_delay_is_deterministic_and_consumes_no_rng() -> None:
     assert len(set(estimates)) == 1
     assert repr(rng.bit_generator.state) == state_before
 
-    # The realized delay does sample jitter (rng state advances).
-    net.uplink_delay("node_1", "node_h", task, 0.0)
-    assert repr(rng.bit_generator.state) != state_before
+    # The realized delay applies jitter, so it differs from the estimate...
+    realized = net.uplink_delay("node_1", "node_h", task, 0.0)
+    assert realized != estimates[0]
+    # ...but it is derived from the transfer's identity, not from the next
+    # value off a shared stream, so nothing global advances.
+    assert repr(rng.bit_generator.state) == state_before
 
+
+def test_jitter_is_a_fixed_property_of_the_transfer() -> None:
+    """The same task on the same link always gets the same wobble.
+
+    Drawing sequentially would tie a transfer's jitter to how many
+    transfers preceded it - a count the allocator controls - so two
+    strategies would face different link weather. Keying by identity makes
+    the world genuinely identical no matter what was decided.
+    """
+    def net():
+        return FluidLinkNetworkModel(
+            default_profile="wifi",
+            profiles={"wifi": {"jitter_s": 0.005}},
+            rng=np.random.default_rng(7),
+        )
+
+    a, b = net(), net()
+    task = _task(data_size=1_000_000.0)
+
+    # b performs 50 unrelated transfers first; a performs none.
+    for i in range(50):
+        b.uplink_delay("node_1", "other", _task(task_id=f"noise_{i}"), 0.0)
+
+    assert a.uplink_delay("node_1", "node_h", task, 0.0) == b.uplink_delay(
+        "node_1", "node_h", task, 0.0
+    )
+
+
+def test_different_transfers_get_different_jitter() -> None:
+    net = FluidLinkNetworkModel(
+        default_profile="wifi",
+        profiles={"wifi": {"jitter_s": 0.005}},
+        rng=np.random.default_rng(7),
+    )
+    values = {
+        net.uplink_delay("node_1", "node_h", _task(task_id=f"t{i}"), 0.0)
+        for i in range(20)
+    }
+    assert len(values) > 15  # essentially all distinct
 
 def test_realized_delay_centres_on_expected_delay() -> None:
     rng = np.random.default_rng(7)

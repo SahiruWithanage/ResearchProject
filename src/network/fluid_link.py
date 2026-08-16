@@ -15,6 +15,7 @@ missing. Set ``jitter_s: 0`` in a profile override to silence a link.
 from __future__ import annotations
 
 import math
+import zlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -105,6 +106,7 @@ class FluidLinkNetworkModel(NetworkModel):
         profiles: dict[str, Any] | None = None,
         links: list[dict[str, Any]] | None = None,
         rng: np.random.Generator | None = None,
+        jitter_entropy: int | None = None,
         positions: dict[str, tuple[float, float]] | None = None,
         propagation_speed_kms: float = 200_000.0,
         path_loss_exponent: float = 0.0,
@@ -130,6 +132,13 @@ class FluidLinkNetworkModel(NetworkModel):
             )
         # Injected by the Environment from each node's `location`; empty
         # means no geometry, which reproduces the distance-free behaviour.
+        # Entropy for keyed jitter. Drawn once at construction so it is a
+        # stable property of the run, never of the transfer order.
+        self._jitter_entropy = (
+            int(jitter_entropy)
+            if jitter_entropy is not None
+            else (int(rng.integers(1 << 32)) if rng is not None else 0)
+        )
         self._positions = dict(positions or {})
         self.propagation_speed_kms = float(propagation_speed_kms)
         self.path_loss_exponent = float(path_loss_exponent)
@@ -156,7 +165,9 @@ class FluidLinkNetworkModel(NetworkModel):
         task: Task,
         t: float,
     ) -> float:
-        return self._realized_delay(source_id, target_id, task.data_size, t)
+        return self._realized_delay(
+            source_id, target_id, task.data_size, t, task.task_id
+        )
 
     def downlink_delay(
         self,
@@ -165,7 +176,9 @@ class FluidLinkNetworkModel(NetworkModel):
         task: Task,
         t: float,
     ) -> float:
-        return self._realized_delay(executor_id, source_id, task.result_size, t)
+        return self._realized_delay(
+            executor_id, source_id, task.result_size, t, task.task_id
+        )
 
     # ------------------------------------------------------------------
     # Expected delays (deterministic - free to call any number of times)
@@ -194,12 +207,13 @@ class FluidLinkNetworkModel(NetworkModel):
     # ------------------------------------------------------------------
 
     def _realized_delay(
-        self, from_id: str, to_id: str, payload_bytes: float, t: float
+        self, from_id: str, to_id: str, payload_bytes: float, t: float,
+        key: str = "",
     ) -> float:
         if from_id == to_id:
             return 0.0
         spec = self._resolve_spec(from_id, to_id)
-        jitter = self._sample_jitter(spec.jitter_s)
+        jitter = self._sample_jitter(spec.jitter_s, from_id, to_id, key)
         return max(0.0, self._deterministic_delay(spec, payload_bytes, from_id, to_id, t) + jitter)
 
     def _expected_delay(
@@ -409,11 +423,36 @@ class FluidLinkNetworkModel(NetworkModel):
                 "profile/link overrides"
             )
 
-    def _sample_jitter(self, jitter_s: float) -> float:
+    def _sample_jitter(
+        self, jitter_s: float, from_id: str, to_id: str, key: str
+    ) -> float:
+        """Jitter for one specific transfer, derived from its identity.
+
+        Deliberately *not* the next value off a shared stream. Drawing
+        sequentially would make a transfer's jitter depend on how many
+        transfers happened before it - and that count is decided by the
+        allocator, which is the thing under study. Two strategies would
+        then face subtly different link weather, weakening the claim that
+        they were compared in an identical world.
+
+        Keying by ``(task, from, to)`` makes a given transfer's wobble a
+        fixed property of the run: the same task crossing the same link
+        gets the same value no matter what any allocator decided, and no
+        matter in what order transfers occurred. Direction needs no
+        separate tag, since ``from -> to`` already reverses on the way
+        back.
+
+        The same technique is used by ``varying_fluid_link`` for its
+        per-window quality factors.
+        """
         if jitter_s <= 0.0:
             return 0.0
         if self._rng is None:
             raise ValueError(
                 "fluid_link network with jitter requires a seeded rng"
             )
-        return float(self._rng.uniform(-jitter_s, jitter_s))
+        stamp = zlib.crc32(f"{key}|{from_id}->{to_id}".encode("utf-8"))
+        rng = np.random.default_rng(
+            np.random.SeedSequence([self._jitter_entropy, stamp])
+        )
+        return float(rng.uniform(-jitter_s, jitter_s))

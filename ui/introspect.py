@@ -52,6 +52,7 @@ _HIDDEN_PARAMS: dict[str, frozenset[str]] = {
             "profiles",
             "links",
             "variation_entropy",
+            "jitter_entropy",
             # Derived from each node's `location`, not set on the network.
             "positions",
         }
